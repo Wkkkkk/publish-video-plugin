@@ -390,8 +390,11 @@ def main():
 
     sources = list(args.sources)
     if args.from_file:
-        with open(args.from_file) as f:
-            sources += parse_source_list(f.read())
+        try:
+            with open(args.from_file) as f:
+                sources += parse_source_list(f.read())
+        except OSError as e:
+            die(f"error: cannot read --from-file {args.from_file}: {e}")
     if not sources:
         die("error: no sources given (pass SOURCE args and/or --from-file)")
     if args.title and len(sources) > 1:
@@ -410,6 +413,8 @@ def main():
         die(f"error: {e}")
     if not jobs:
         die("error: no video files found in the given sources")
+    if args.title and len(jobs) > 1:
+        die("error: --title only applies to a single video (this expanded to multiple)")
 
     if args.dry_run:
         results = [plan_job(s, t, args.key_prefix, public_base, args.title, args.transcode,
