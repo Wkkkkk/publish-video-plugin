@@ -50,5 +50,14 @@ class Helpers(unittest.TestCase):
         )
 
 
+class Errors(unittest.TestCase):
+    def test_publisherror_is_exception(self):
+        self.assertTrue(issubclass(v.PublishError, Exception))
+
+    def test_publisherror_carries_message(self):
+        err = v.PublishError("boom")
+        self.assertEqual(str(err), "boom")
+
+
 if __name__ == "__main__":
     unittest.main()

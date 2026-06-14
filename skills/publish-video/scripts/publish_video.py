@@ -26,6 +26,16 @@ import uuid
 AVC1_FORMAT = "bv*[vcodec~=avc1]+ba[ext=m4a]/b[vcodec~=avc1]"
 
 
+class PublishError(Exception):
+    """A per-item failure; caught by the batch loop so other items continue."""
+
+
+def die(msg: str):
+    """Config/usage error: print to stderr and exit 2."""
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+
 def is_url(source: str) -> bool:
     return source.startswith("http://") or source.startswith("https://")
 
@@ -74,12 +84,12 @@ def public_url(base: str, key: str) -> str:
 def require_env(*names):
     missing = [n for n in names if not os.environ.get(n)]
     if missing:
-        sys.exit("error: missing required env vars: " + ", ".join(missing))
+        die("error: missing required env vars: " + ", ".join(missing))
 
 
 def require_tool(name: str):
     if shutil.which(name) is None:
-        sys.exit(f"error: required tool not found on PATH: {name}")
+        die(f"error: required tool not found on PATH: {name}")
 
 
 def probe_duration(path: str) -> int:
@@ -94,11 +104,11 @@ def probe_duration(path: str) -> int:
         text=True,
     )
     if out.returncode != 0:
-        sys.exit(f"error: ffprobe failed: {out.stderr.strip()}")
+        raise PublishError(f"ffprobe failed: {out.stderr.strip()}")
     try:
         return round(float(out.stdout.strip()))
     except ValueError:
-        sys.exit(f"error: could not parse ffprobe duration: {out.stdout!r}")
+        raise PublishError(f"could not parse ffprobe duration: {out.stdout!r}")
 
 
 def fetch_title(url: str, cookies) -> str | None:
@@ -115,14 +125,14 @@ def download_and_mux(url: str, out_path: str, cookies, format_sort: str):
     cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort)
     print("+ " + " ".join(cmd), file=sys.stderr)
     if subprocess.run(cmd).returncode != 0:
-        sys.exit("error: yt-dlp download/mux failed (see output above)")
+        raise PublishError("yt-dlp download/mux failed (see output above)")
 
 
 def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str):
     try:
         import boto3
     except ImportError:
-        sys.exit("error: boto3 is required for upload (pip install boto3)")
+        raise PublishError("boto3 is required for upload (pip install boto3)")
     client = boto3.client("s3", endpoint_url=endpoint)
     client.upload_file(path, bucket, key, ExtraArgs={"ContentType": "video/mp4"})
 
@@ -143,9 +153,9 @@ def register_item(base: str, channel: int, password: str, payload: dict) -> dict
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        sys.exit(f"error: API returned {e.code}: {e.read().decode()[:300]}")
+        raise PublishError(f"MyTV API returned {e.code}: {e.read().decode()[:300]}")
     except urllib.error.URLError as e:
-        sys.exit(f"error: could not reach {url}: {e.reason}")
+        raise PublishError(f"could not reach {url}: {e.reason}")
 
 
 def main():
