@@ -174,5 +174,16 @@ class Results(unittest.TestCase):
                                         cookies=None, dry_run=True), "Override")
 
 
+class DryRunPlan(unittest.TestCase):
+    def test_plan_job_local(self):
+        plan = v.plan_job("/x/My Clip.mp4", "local_file", key_prefix="video",
+                          public_base="https://b", title_override=None, transcode=False,
+                          uid="ID")
+        self.assertEqual(plan["title"], "My Clip")
+        self.assertEqual(plan["object_key"], "video/ID-My_Clip.mp4")
+        self.assertEqual(plan["public_url"], "https://b/video/ID-My_Clip.mp4")
+        self.assertTrue(plan["dry_run"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -272,13 +272,13 @@ def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str) ->
     raise PublishError(f"cannot acquire source type: {stype}")
 
 
-def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str):
+def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str, content_type: str = "video/mp4"):
     try:
         import boto3
     except ImportError:
         raise PublishError("boto3 is required for upload (pip install boto3)")
     client = boto3.client("s3", endpoint_url=endpoint)
-    client.upload_file(path, bucket, key, ExtraArgs={"ContentType": "video/mp4"})
+    client.upload_file(path, bucket, key, ExtraArgs={"ContentType": content_type})
 
 
 def build_result(source, stype, title, public, key, duration, passthrough, transcoded) -> dict:
@@ -337,76 +337,107 @@ def register_item(base: str, channel: int, password: str, payload: dict) -> dict
         raise PublishError(f"could not reach {url}: {e.reason}")
 
 
+def plan_job(source, stype, key_prefix, public_base, title_override, transcode, uid) -> dict:
+    title = derive_title(source, stype, title_override, cookies=None, dry_run=True)
+    ext = "mp4"
+    if stype in ("direct_url", "local_file"):
+        ext = os.path.splitext(source.split("?", 1)[0])[1].lstrip(".").lower() or "mp4"
+        if transcode and ext != "mp4":
+            ext = "mp4"
+    key = object_key(key_prefix, sanitize_filename(title) + "." + ext, uid)
+    return {
+        "source": source, "type": stype, "title": title,
+        "object_key": key, "public_url": public_url(public_base, key),
+        "dry_run": True,
+    }
+
+
+def process_job(source, stype, args, endpoint, bucket, public_base) -> dict:
+    workdir = tempfile.mkdtemp(prefix="publish_video_")
+    try:
+        acquired = acquire(source, stype, workdir, args.cookies, args.format_sort)
+        final_path, passthrough, transcoded = ensure_playable(acquired, args.transcode, workdir)
+        duration = probe_duration(final_path)
+        title = derive_title(source, stype, args.title, args.cookies, dry_run=False)
+        ext = os.path.splitext(final_path)[1].lstrip(".").lower() or "mp4"
+        key = object_key(args.key_prefix, sanitize_filename(title) + "." + ext, uuid.uuid4().hex)
+        upload_to_bucket(final_path, endpoint, bucket, key, content_type_for(final_path))
+        return build_result(source, stype, title, public_url(public_base, key),
+                            key, duration, passthrough, transcoded)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def main():
     p = argparse.ArgumentParser(
-        description="Upload/download a video to object storage and register it as a MyTV VOD item."
+        description="Publish a video (file, URL, yt-dlp site, or folder) to a public URL."
     )
-    p.add_argument("source", help="Local MP4 path OR a video URL (yt-dlp-supported, e.g. Bilibili/YouTube)")
-    p.add_argument("--channel", type=int, required=True, help="MyTV channel id to add the item to")
-    p.add_argument("--title", help="Item title (default: yt-dlp title for URLs, filename for local files)")
-    p.add_argument("--key-prefix", default="vod", help="Object key prefix (default: vod)")
+    p.add_argument("sources", nargs="*", help="yt-dlp URL | direct media URL | local file | local directory")
+    p.add_argument("--from-file", dest="from_file", help="read additional sources, one per line (# comments)")
+    p.add_argument("--recursive", action="store_true", help="descend into subdirectories for directory sources")
+    p.add_argument("--title", help="title override (single-source runs only)")
+    p.add_argument("--key-prefix", default="video", help="object key prefix (default: video)")
     p.add_argument("--cookies-from-browser", dest="cookies", default="chrome",
-                   help="Browser for yt-dlp cookies on URL sources (default: chrome)")
+                   help="browser for yt-dlp cookies (default: chrome; URL sources)")
     p.add_argument("--format-sort", default="vcodec:h264,acodec:aac",
-                   help="yt-dlp -S sort string (default prefers H.264/AAC)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Print planned actions without downloading, uploading, or registering")
+                   help="yt-dlp -S string (default prefers H.264/AAC)")
+    p.add_argument("--transcode", action="store_true",
+                   help="re-encode non-H.264/AAC inputs (default: warn + upload as-is)")
+    p.add_argument("--sink", choices=["print", "mytv"], default="print", help="output sink")
+    p.add_argument("--channel", type=int, help="MyTV channel id (required with --sink mytv)")
+    p.add_argument("--dry-run", action="store_true", help="print planned actions; no download/upload/register")
     args = p.parse_args()
 
-    require_env("MYTV_BASE_URL", "MYTV_ADMIN_PASSWORD",
-                "VOD_S3_ENDPOINT", "VOD_S3_BUCKET", "VOD_PUBLIC_BASE_URL")
-    base = os.environ["MYTV_BASE_URL"]
-    password = os.environ["MYTV_ADMIN_PASSWORD"]
-    endpoint = os.environ["VOD_S3_ENDPOINT"]
-    bucket = os.environ["VOD_S3_BUCKET"]
-    public_base = os.environ["VOD_PUBLIC_BASE_URL"]
+    sources = list(args.sources)
+    if args.from_file:
+        with open(args.from_file) as f:
+            sources += parse_source_list(f.read())
+    if not sources:
+        die("error: no sources given (pass SOURCE args and/or --from-file)")
+    if args.title and len(sources) > 1:
+        die("error: --title only applies to a single source")
+    if args.sink == "mytv" and args.channel is None:
+        die("error: --sink mytv requires --channel")
 
-    remote = is_url(args.source)
-    if remote:
-        # In a dry run, avoid spawning yt-dlp just to learn the title.
-        title = args.title or (None if args.dry_run else fetch_title(args.source, args.cookies)) or "Untitled"
-        filename = sanitize_filename(title) + ".mp4"
-    else:
-        if not os.path.isfile(args.source):
-            sys.exit(f"error: file not found: {args.source}")
-        title = args.title or os.path.splitext(os.path.basename(args.source))[0]
-        filename = os.path.basename(args.source)
-
-    key = object_key(args.key_prefix, filename, uuid.uuid4().hex)
-    final_url = public_url(public_base, key)
-
-    if args.dry_run:
-        print(json.dumps({
-            "dry_run": True,
-            "source": args.source,
-            "title": title,
-            "object_key": key,
-            "public_url": final_url,
-            "register_url": build_register_url(base, args.channel),
-        }, indent=2))
-        return
-
-    tmp = None
-    if remote:
-        require_tool("yt-dlp")
-        require_tool("ffprobe")
-        tmp = tempfile.mkdtemp(prefix="vod_upload_")
-        local_path = os.path.join(tmp, "video.mp4")
-    else:
-        require_tool("ffprobe")
-        local_path = args.source
+    require_env("PUBLISH_VIDEO_S3_ENDPOINT", "PUBLISH_VIDEO_S3_BUCKET", "PUBLISH_VIDEO_PUBLIC_BASE_URL")
+    endpoint = os.environ["PUBLISH_VIDEO_S3_ENDPOINT"]
+    bucket = os.environ["PUBLISH_VIDEO_S3_BUCKET"]
+    public_base = os.environ["PUBLISH_VIDEO_PUBLIC_BASE_URL"]
 
     try:
-        if remote:
-            download_and_mux(args.source, local_path, args.cookies, args.format_sort)
-        duration = probe_duration(local_path)
-        upload_to_bucket(local_path, endpoint, bucket, key)
-        item = register_item(base, args.channel, password,
-                             build_payload(title, final_url, duration))
-        print(json.dumps({"registered": item, "public_url": final_url}, indent=2))
-    finally:
-        if tmp:
-            shutil.rmtree(tmp, ignore_errors=True)
+        jobs = resolve_jobs(sources, args.recursive)
+    except ValueError as e:
+        die(f"error: {e}")
+    if not jobs:
+        die("error: no video files found in the given sources")
+
+    if args.dry_run:
+        results = [plan_job(s, t, args.key_prefix, public_base, args.title, args.transcode,
+                            uuid.uuid4().hex) for s, t in jobs]
+        print(json.dumps(build_envelope(results), indent=2))
+        return
+
+    for tool in sorted(required_tools(jobs, args.transcode)):
+        require_tool(tool)
+    if args.sink == "mytv":
+        require_env("MYTV_BASE_URL", "MYTV_ADMIN_PASSWORD")
+
+    results = []
+    for source, stype in jobs:
+        try:
+            result = process_job(source, stype, args, endpoint, bucket, public_base)
+            if args.sink == "mytv":
+                item = register_item(os.environ["MYTV_BASE_URL"], args.channel,
+                                     os.environ["MYTV_ADMIN_PASSWORD"],
+                                     build_payload(result["title"], result["public_url"],
+                                                   result["duration_secs"]))
+                result["mytv_item"] = item.get("id", item)
+        except PublishError as e:
+            result = error_result(source, stype, str(e))
+        results.append(result)
+
+    print(json.dumps(build_envelope(results), indent=2))
+    sys.exit(exit_code_for(results))
 
 
 if __name__ == "__main__":
