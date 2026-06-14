@@ -59,5 +59,34 @@ class Errors(unittest.TestCase):
         self.assertEqual(str(err), "boom")
 
 
+class Classify(unittest.TestCase):
+    def test_has_media_ext(self):
+        self.assertTrue(v.has_media_ext("https://x/y.MP4?token=1"))
+        self.assertTrue(v.has_media_ext("https://x/y.webm"))
+        self.assertFalse(v.has_media_ext("https://x/watch?v=abc"))
+        self.assertFalse(v.has_media_ext("https://x/y.m3u8"))
+
+    def test_is_video_file(self):
+        self.assertTrue(v.is_video_file("Ep1.mkv"))
+        self.assertTrue(v.is_video_file("a.MP4"))
+        self.assertFalse(v.is_video_file("notes.txt"))
+
+    def test_classify_local(self):
+        isdir = lambda p: p == "/movies"
+        isfile = lambda p: p == "/movies/a.mp4"
+        self.assertEqual(v.classify_source("/movies", isdir, isfile), "directory")
+        self.assertEqual(v.classify_source("/movies/a.mp4", isdir, isfile), "local_file")
+
+    def test_classify_urls(self):
+        no = lambda p: False
+        self.assertEqual(v.classify_source("https://x/y.mp4", no, no), "direct_url")
+        self.assertEqual(v.classify_source("https://youtu.be/abc", no, no), "ytdlp_url")
+
+    def test_classify_unknown_raises(self):
+        no = lambda p: False
+        with self.assertRaises(ValueError):
+            v.classify_source("./missing.mp4", no, no)
+
+
 if __name__ == "__main__":
     unittest.main()

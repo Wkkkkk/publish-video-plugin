@@ -40,6 +40,29 @@ def is_url(source: str) -> bool:
     return source.startswith("http://") or source.startswith("https://")
 
 
+MEDIA_EXTS = (".mp4", ".webm", ".mov", ".m4v")
+VIDEO_FILE_EXTS = (".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi")
+
+
+def has_media_ext(url: str, exts=MEDIA_EXTS) -> bool:
+    path = url.split("?", 1)[0].split("#", 1)[0].lower()
+    return path.endswith(exts)
+
+
+def is_video_file(name: str, exts=VIDEO_FILE_EXTS) -> bool:
+    return name.lower().endswith(exts)
+
+
+def classify_source(source: str, isdir=os.path.isdir, isfile=os.path.isfile) -> str:
+    if isdir(source):
+        return "directory"
+    if isfile(source):
+        return "local_file"
+    if is_url(source):
+        return "direct_url" if has_media_ext(source) else "ytdlp_url"
+    raise ValueError(f"not a file, directory, or URL: {source}")
+
+
 def sanitize_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name))
 
