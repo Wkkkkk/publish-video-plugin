@@ -130,5 +130,17 @@ class Acquire(unittest.TestCase):
         self.assertEqual(cmd[-1], "/out.mp4")
 
 
+class Playable(unittest.TestCase):
+    def test_playable_true(self):
+        self.assertTrue(v.is_browser_playable("mp4", "h264", "aac"))
+        self.assertTrue(v.is_browser_playable("mp4", "h264", ""))   # no audio
+        self.assertTrue(v.is_browser_playable("mp4", "h264", None))
+
+    def test_playable_false(self):
+        self.assertFalse(v.is_browser_playable("webm", "vp9", "opus"))
+        self.assertFalse(v.is_browser_playable("mp4", "av1", "aac"))
+        self.assertFalse(v.is_browser_playable("mkv", "h264", "aac"))
+
+
 if __name__ == "__main__":
     unittest.main()

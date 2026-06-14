@@ -224,6 +224,39 @@ def transcode_to_h264(in_path: str, out_path: str):
         raise PublishError("ffmpeg transcode failed (see output above)")
 
 
+def is_browser_playable(container: str, vcodec: str, acodec) -> bool:
+    return container == "mp4" and vcodec == "h264" and (acodec in ("aac", "", None))
+
+
+def probe_streams(path: str):
+    def codec(kind: str) -> str:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", kind,
+             "-show_entries", "stream=codec_name",
+             "-of", "default=nokey=1:noprint_wrappers=1", path],
+            capture_output=True, text=True,
+        )
+        return out.stdout.strip()
+    return codec("v:0"), codec("a:0")
+
+
+def ensure_playable(path: str, transcode: bool, workdir: str):
+    container = os.path.splitext(path)[1].lstrip(".").lower()
+    vcodec, acodec = probe_streams(path)
+    if is_browser_playable(container, vcodec, acodec):
+        return path, True, False
+    if transcode:
+        out = os.path.join(workdir, "transcoded.mp4")
+        transcode_to_h264(path, out)
+        return out, False, True
+    print(
+        f"warning: {os.path.basename(path)} is "
+        f"{container}/{vcodec or '?'}/{acodec or 'no-audio'}; may not play in all browsers",
+        file=sys.stderr,
+    )
+    return path, False, False
+
+
 def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str) -> str:
     if stype == "ytdlp_url":
         out = os.path.join(workdir, "video.mp4")
