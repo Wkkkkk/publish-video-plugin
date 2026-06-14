@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Upload a local MP4 (or download+mux a video URL) to public object storage and
-register it as a MyTV VOD playlist item via the JSON admin API.
+"""Publish a video to a public URL: take a local file, a direct media URL, a
+yt-dlp-supported site URL, or a folder of videos, normalize it to a
+browser-playable H.264/AAC MP4, upload it to S3-compatible object storage, and
+print a JSON result envelope on stdout.
 
-Independent of the MyTV server. See scripts/README.md for prerequisites, env
-vars, and usage.
+Standalone — no server dependency. Registering the result as a MyTV VOD playlist
+item is one optional sink (--sink mytv). See ../SKILL.md and ../REFERENCE.md for
+prerequisites, env vars, flags, and usage.
 """
 from __future__ import annotations
 
@@ -302,7 +305,7 @@ def exit_code_for(results) -> int:
     return 1 if any("error" in r for r in results) else 0
 
 
-def derive_title(source, stype, override, cookies, dry_run, final_path=None) -> str:
+def derive_title(source, stype, override, cookies, dry_run) -> str:
     if override:
         return override
     if stype == "local_file":

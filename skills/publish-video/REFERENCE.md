@@ -21,7 +21,7 @@
 | `PUBLISH_VIDEO_S3_ENDPOINT` | always | S3-compatible endpoint URL |
 | `PUBLISH_VIDEO_S3_BUCKET` | always | Bucket name |
 | `PUBLISH_VIDEO_PUBLIC_BASE_URL` | always | Public base URL of the bucket |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | always | boto3 credentials |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | upload | boto3 credentials (or any other source in boto3's standard chain, e.g. `~/.aws/credentials`) |
 | `MYTV_BASE_URL` / `MYTV_ADMIN_PASSWORD` | `--sink mytv` | MyTV API base + admin password |
 
 ## JSON output (stdout)
