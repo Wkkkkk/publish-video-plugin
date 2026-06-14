@@ -142,5 +142,37 @@ class Playable(unittest.TestCase):
         self.assertFalse(v.is_browser_playable("mkv", "h264", "aac"))
 
 
+class Results(unittest.TestCase):
+    def test_build_result(self):
+        r = v.build_result("src", "local_file", "T", "https://b/k.mp4", "k.mp4", 12, True, False)
+        self.assertEqual(r["public_url"], "https://b/k.mp4")
+        self.assertEqual(r["duration_secs"], 12)
+        self.assertTrue(r["passthrough"])
+        self.assertNotIn("error", r)
+
+    def test_error_result(self):
+        r = v.error_result("src", "ytdlp_url", "boom")
+        self.assertEqual(r["error"], "boom")
+        self.assertNotIn("public_url", r)
+
+    def test_envelope_and_exit(self):
+        ok = v.build_result("s", "local_file", "T", "u", "k", 1, True, False)
+        bad = v.error_result("s2", "ytdlp_url", "x")
+        env = v.build_envelope([ok, bad])
+        self.assertEqual(env["ok"], 1)
+        self.assertEqual(env["failed"], 1)
+        self.assertEqual(env["results"], [ok, bad])
+        self.assertEqual(v.exit_code_for([ok, bad]), 1)
+        self.assertEqual(v.exit_code_for([ok]), 0)
+
+    def test_derive_title_dry_run(self):
+        self.assertEqual(v.derive_title("/x/My Clip.mkv", "local_file", None,
+                                        cookies=None, dry_run=True), "My Clip")
+        self.assertEqual(v.derive_title("https://x/y.mp4", "direct_url", None,
+                                        cookies=None, dry_run=True), "y")
+        self.assertEqual(v.derive_title("https://x/y.mp4", "direct_url", "Override",
+                                        cookies=None, dry_run=True), "Override")
+
+
 if __name__ == "__main__":
     unittest.main()

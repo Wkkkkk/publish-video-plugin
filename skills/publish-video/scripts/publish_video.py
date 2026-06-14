@@ -281,6 +281,41 @@ def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str):
     client.upload_file(path, bucket, key, ExtraArgs={"ContentType": "video/mp4"})
 
 
+def build_result(source, stype, title, public, key, duration, passthrough, transcoded) -> dict:
+    return {
+        "source": source, "type": stype, "title": title,
+        "public_url": public, "object_key": key, "duration_secs": duration,
+        "passthrough": passthrough, "transcoded": transcoded,
+    }
+
+
+def error_result(source, stype, message) -> dict:
+    return {"source": source, "type": stype, "error": message}
+
+
+def build_envelope(results) -> dict:
+    failed = sum(1 for r in results if "error" in r)
+    return {"ok": len(results) - failed, "failed": failed, "results": results}
+
+
+def exit_code_for(results) -> int:
+    return 1 if any("error" in r for r in results) else 0
+
+
+def derive_title(source, stype, override, cookies, dry_run, final_path=None) -> str:
+    if override:
+        return override
+    if stype == "local_file":
+        return os.path.splitext(os.path.basename(source))[0]
+    if stype == "direct_url":
+        base = os.path.basename(source.split("?", 1)[0])
+        return os.path.splitext(base)[0] or "Untitled"
+    # ytdlp_url
+    if dry_run:
+        return "Untitled"
+    return fetch_title(source, cookies) or "Untitled"
+
+
 def register_item(base: str, channel: int, password: str, payload: dict) -> dict:
     url = build_register_url(base, channel)
     token = base64.b64encode(f"user:{password}".encode()).decode()
