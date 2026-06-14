@@ -192,6 +192,53 @@ def download_and_mux(url: str, out_path: str, cookies, format_sort: str):
         raise PublishError("yt-dlp download/mux failed (see output above)")
 
 
+CONTENT_TYPES = {
+    "mp4": "video/mp4", "m4v": "video/x-m4v",
+    "webm": "video/webm", "mov": "video/quicktime",
+}
+
+
+def content_type_for(path: str) -> str:
+    ext = os.path.splitext(path)[1].lstrip(".").lower()
+    return CONTENT_TYPES.get(ext, "video/mp4")
+
+
+def build_ffmpeg_transcode_cmd(in_path: str, out_path: str) -> list:
+    return [
+        "ffmpeg", "-y", "-i", in_path,
+        "-c:v", "libx264", "-c:a", "aac",
+        "-movflags", "+faststart", out_path,
+    ]
+
+
+def download_direct(url: str, out_path: str):
+    try:
+        with urllib.request.urlopen(url) as resp, open(out_path, "wb") as f:
+            shutil.copyfileobj(resp, f)
+    except (urllib.error.URLError, OSError) as e:
+        raise PublishError(f"direct download failed for {url}: {e}")
+
+
+def transcode_to_h264(in_path: str, out_path: str):
+    if subprocess.run(build_ffmpeg_transcode_cmd(in_path, out_path)).returncode != 0:
+        raise PublishError("ffmpeg transcode failed (see output above)")
+
+
+def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str) -> str:
+    if stype == "ytdlp_url":
+        out = os.path.join(workdir, "video.mp4")
+        download_and_mux(source, out, cookies, format_sort)
+        return out
+    if stype == "direct_url":
+        name = sanitize_filename(os.path.basename(source.split("?", 1)[0])) or "video.mp4"
+        out = os.path.join(workdir, name)
+        download_direct(source, out)
+        return out
+    if stype == "local_file":
+        return source
+    raise PublishError(f"cannot acquire source type: {stype}")
+
+
 def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str):
     try:
         import boto3

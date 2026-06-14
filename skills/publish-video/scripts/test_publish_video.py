@@ -115,5 +115,20 @@ class Resolve(unittest.TestCase):
                          {"ffprobe", "ffmpeg"})
 
 
+class Acquire(unittest.TestCase):
+    def test_content_type_for(self):
+        self.assertEqual(v.content_type_for("/x/a.mp4"), "video/mp4")
+        self.assertEqual(v.content_type_for("/x/a.webm"), "video/webm")
+        self.assertEqual(v.content_type_for("/x/a.mov"), "video/quicktime")
+        self.assertEqual(v.content_type_for("/x/a.unknown"), "video/mp4")
+
+    def test_build_ffmpeg_transcode_cmd(self):
+        cmd = v.build_ffmpeg_transcode_cmd("/in.mkv", "/out.mp4")
+        self.assertEqual(cmd[0], "ffmpeg")
+        self.assertIn("libx264", cmd)
+        self.assertIn("aac", cmd)
+        self.assertEqual(cmd[-1], "/out.mp4")
+
+
 if __name__ == "__main__":
     unittest.main()
