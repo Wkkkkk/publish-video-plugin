@@ -1,0 +1,11 @@
+{
+  "name": "kunwu-plugins",
+  "owner": { "name": "Kun Wu" },
+  "plugins": [
+    {
+      "name": "publish-video",
+      "source": "./",
+      "description": "Publish a local or remote video to a public URL via S3-compatible storage."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "publish-video",
+  "version": "0.1.0",
+  "description": "Publish a local or remote video to a public URL: normalize to a browser-playable MP4, upload to S3-compatible object storage, return the URL.",
+  "author": { "name": "Kun Wu" }
+}
