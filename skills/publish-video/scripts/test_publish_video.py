@@ -88,5 +88,32 @@ class Classify(unittest.TestCase):
             v.classify_source("./missing.mp4", no, no)
 
 
+class Resolve(unittest.TestCase):
+    def test_parse_source_list(self):
+        text = "https://a/x.mp4\n# comment\n\n  ./b.mp4  \n"
+        self.assertEqual(v.parse_source_list(text), ["https://a/x.mp4", "./b.mp4"])
+
+    def test_expand_directory(self):
+        listing = {"/m": ["a.mp4", "b.txt", "c.mkv"]}
+        walk = lambda p: [(p, [], listing[p])]
+        got = v.expand_directory("/m", recursive=False, walk_fn=walk)
+        self.assertEqual(got, ["/m/a.mp4", "/m/c.mkv"])
+
+    def test_resolve_jobs_expands_dir(self):
+        classify = lambda s, *_: {"/m": "directory", "/m/a.mp4": "local_file",
+                                  "https://x/y.mp4": "direct_url"}[s]
+        walk = lambda p: [("/m", [], ["a.mp4"])]
+        jobs = v.resolve_jobs(["/m", "https://x/y.mp4"], recursive=False,
+                              classify_fn=classify, walk_fn=walk)
+        self.assertEqual(jobs, [("/m/a.mp4", "local_file"),
+                                ("https://x/y.mp4", "direct_url")])
+
+    def test_required_tools(self):
+        jobs = [("u", "ytdlp_url"), ("f", "local_file")]
+        self.assertEqual(v.required_tools(jobs, transcode=False), {"ffprobe", "yt-dlp"})
+        self.assertEqual(v.required_tools([("f", "local_file")], transcode=True),
+                         {"ffprobe", "ffmpeg"})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,6 +63,47 @@ def classify_source(source: str, isdir=os.path.isdir, isfile=os.path.isfile) -> 
     raise ValueError(f"not a file, directory, or URL: {source}")
 
 
+def parse_source_list(text: str) -> list:
+    out = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.append(line)
+    return out
+
+
+def expand_directory(path: str, recursive: bool, walk_fn=os.walk) -> list:
+    files = []
+    for root, _dirs, names in walk_fn(path):
+        for name in sorted(names):
+            if is_video_file(name):
+                files.append(os.path.join(root, name))
+        if not recursive:
+            break
+    return files
+
+
+def resolve_jobs(sources, recursive, classify_fn=classify_source, walk_fn=os.walk) -> list:
+    jobs = []
+    for source in sources:
+        stype = classify_fn(source)
+        if stype == "directory":
+            for f in expand_directory(source, recursive, walk_fn):
+                jobs.append((f, "local_file"))
+        else:
+            jobs.append((source, stype))
+    return jobs
+
+
+def required_tools(jobs, transcode: bool) -> set:
+    tools = {"ffprobe"}
+    if any(t == "ytdlp_url" for _, t in jobs):
+        tools.add("yt-dlp")
+    if transcode:
+        tools.add("ffmpeg")
+    return tools
+
+
 def sanitize_filename(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name))
 
