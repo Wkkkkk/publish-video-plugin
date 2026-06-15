@@ -176,26 +176,77 @@ class Actions(unittest.TestCase):
         ]
         self.assertEqual(act.enabled_actions(config), [("mytv", {"channel": 7})])
 
-    def test_run_mytv_uses_engine_helpers(self):
-        captured = {}
+    def test_default_channel_name_derives(self):
+        self.assertEqual(act.default_channel_name("youtube"), "MyYoutube")
+        self.assertEqual(act.default_channel_name("bilibili"), "MyBilibili")
+        self.assertEqual(act.default_channel_name("vimeo"), "MyVimeo")
 
-        def fake_register(base, channel, password, payload):
-            captured.update(base=base, channel=channel, password=password, payload=payload)
-            return {"id": 99}
+    def _mytv_ctx(self):
+        return {"outcomes": [
+            {"ok": True, "result": {"platform": "youtube", "title": "Y1",
+                                    "public_url": "https://b/y1.mp4", "duration_secs": 10}},
+            {"ok": True, "result": {"platform": "bilibili", "title": "B1",
+                                    "public_url": "https://b/b1.mp4", "duration_secs": 20}},
+            {"ok": False, "error": "x"},
+        ], "listing_errors": [], "summary": "s"}
 
-        out = act.run_mytv(
-            SAMPLE_RESULT, {"channel": 7}, register_fn=fake_register,
+    def test_mytv_action_ensures_per_platform_and_registers(self):
+        ensured, registered = [], []
+        out = act.mytv_action(
+            self._mytv_ctx(),
+            {"enabled": True, "type": "vod_on_demand", "category": "saved",
+             "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
             env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda base, pw, name, cat, ctype, existing: (
+                ensured.append(name) or {"MyYoutube": 1, "MyBilibili": 2}[name]),
+            register_item=lambda base, cid, pw, payload: registered.append((cid, payload["title"])) or {"id": cid},
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
         )
-        self.assertEqual(out, {"mytv_item": 99})
-        self.assertEqual(captured["channel"], 7)
-        self.assertEqual(captured["payload"],
-                         {"title": "Clip", "url": "https://b/v/x.mp4", "duration_secs": 42})
+        self.assertEqual(sorted(ensured), ["MyBilibili", "MyYoutube"])
+        self.assertEqual(sorted(registered), [(1, "Y1"), (2, "B1")])
+        self.assertEqual(out["registered"], 2)
 
-    def test_run_mytv_errors_without_env(self):
+    def test_mytv_action_uses_derived_name_when_unconfigured(self):
+        ensured = []
+        act.mytv_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+                            "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda base, pw, name, cat, ctype, existing: ensured.append(name) or 5,
+            register_item=lambda *a, **k: {"id": 5},
+            build_payload=lambda *a, **k: {},
+        )
+        self.assertEqual(ensured, ["MyYoutube"])
+
+    def test_mytv_action_no_items_skips(self):
+        out = act.mytv_action({"outcomes": [{"ok": False}], "listing_errors": [], "summary": "s"},
+                              {"enabled": True}, env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+                              list_channels=lambda *a: (_ for _ in ()).throw(AssertionError("should not fetch")))
+        self.assertIn("skipped", out)
+
+    def test_mytv_action_missing_env_raises(self):
         with self.assertRaises(RuntimeError):
-            act.run_mytv(SAMPLE_RESULT, {"channel": 7},
-                         register_fn=lambda *a: None, env={})
+            act.mytv_action(self._mytv_ctx(), {"enabled": True}, env={})
+
+    def test_mytv_action_isolates_per_item_register_failure(self):
+        registered = []
+        def reg(base, cid, pw, payload):
+            if payload["title"] == "Y1":
+                raise RuntimeError("register boom")
+            registered.append(payload["title"]); return {"id": cid}
+        out = act.mytv_action(
+            self._mytv_ctx(), {"enabled": True},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda *a, **k: 1,
+            register_item=reg,
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+        )
+        self.assertEqual(registered, ["B1"])
+        self.assertEqual(out["registered"], 1)
 
     def test_stubs_return_skipped(self):
         self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))

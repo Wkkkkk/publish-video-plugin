@@ -11,23 +11,6 @@ import sys
 import publish_video  # reuse the engine's MyTV helpers, unchanged
 
 
-def run_mytv(result, opts, register_fn=publish_video.register_item, env=None) -> dict:
-    env = os.environ if env is None else env
-    base = env.get("MYTV_BASE_URL")
-    password = env.get("MYTV_ADMIN_PASSWORD")
-    if not base or not password:
-        raise RuntimeError("mytv action needs MYTV_BASE_URL and MYTV_ADMIN_PASSWORD")
-    channel = opts.get("channel")
-    if channel is None:
-        raise RuntimeError("mytv action needs a 'channel' in its config")
-    payload = publish_video.build_payload(
-        result["title"], result["public_url"], result["duration_secs"]
-    )
-    item = register_fn(base, channel, password, payload)
-    item_id = item.get("id", item) if isinstance(item, dict) else item
-    return {"mytv_item": item_id}
-
-
 def run_summarize(result, opts, **_) -> dict:
     # Stub: summarization not implemented in v1. A real version would need the local
     # file, which the shell-out engine deletes after upload — see plan "Known limits".
@@ -61,12 +44,61 @@ def notify_action(run_context, opts, log=None, send_fn=send_macos_notification) 
     return {"notified": True}
 
 
+def default_channel_name(platform: str) -> str:
+    return "My" + platform.title()
+
+
+def mytv_action(run_context, opts, log=None, env=None,
+                list_channels=publish_video.list_channels,
+                ensure_channel=publish_video.ensure_channel,
+                register_item=publish_video.register_item,
+                build_payload=publish_video.build_payload) -> dict:
+    """Run-level: register each successful item into its platform's MyTV channel,
+    creating the channel if missing. Groups by platform; one ensure per platform."""
+    log = log or (lambda m: None)
+    env = os.environ if env is None else env
+    base = env.get("MYTV_BASE_URL")
+    password = env.get("MYTV_ADMIN_PASSWORD")
+    if not base or not password:
+        raise RuntimeError("mytv action needs MYTV_BASE_URL and MYTV_ADMIN_PASSWORD")
+    items = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]
+    if not items:
+        return {"skipped": "no items"}
+    by_platform = {}
+    for r in items:
+        by_platform.setdefault(r["platform"], []).append(r)
+    channels_cfg = opts.get("channels", {})
+    ctype = opts.get("type", "vod_on_demand")
+    category = opts.get("category", "")
+    existing = list_channels(base, password)
+    registered = 0
+    channel_ids = {}
+    for platform, plat_items in by_platform.items():
+        name = channels_cfg.get(platform) or default_channel_name(platform)
+        try:
+            cid = ensure_channel(base, password, name, category, ctype, existing)
+        except Exception as e:
+            log(f"mytv: ensure channel {name!r} failed: {e}")
+            continue
+        channel_ids[platform] = cid
+        for r in plat_items:
+            try:
+                register_item(base, cid, password,
+                              build_payload(r["title"], r["public_url"], r["duration_secs"]))
+                registered += 1
+            except Exception as e:
+                log(f"mytv: register {r.get('title')!r} failed: {e}")
+    return {"registered": registered, "channels": channel_ids}
+
+
 ACTIONS = {
-    "mytv": run_mytv,
     "summarize": run_summarize,
 }
 
-POST_RUN_ACTIONS = {}
+POST_RUN_ACTIONS = {
+    "notify": notify_action,
+    "mytv": mytv_action,
+}
 
 
 def enabled_actions(actions_config) -> list:
