@@ -10,6 +10,7 @@
 | `--key-prefix PREFIX` | `video` | Object key prefix |
 | `--cookies-from-browser B` | `chrome` | Browser for yt-dlp cookies (URL sources) |
 | `--format-sort SORT` | `vcodec:h264,acodec:aac` | yt-dlp `-S` string |
+| `--concurrent-fragments N` | `1` | yt-dlp `-N`: parallel fragment downloads per video |
 | `--transcode` | off | Re-encode non-H.264/AAC inputs to H.264/AAC (else warn + upload as-is) |
 | `--sink {print,mytv}` | `print` | Output sink; `mytv` also registers a playlist item |
 | `--channel N` | — | MyTV channel id (required with `--sink mytv`) |
