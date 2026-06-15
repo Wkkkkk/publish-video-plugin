@@ -351,6 +351,13 @@ class Orchestrate(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(ran["r"]["public_url"], "https://b/x.mp4")
 
+    def test_process_entry_logs_published_url(self):
+        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
+        cfg = w.parse_config('')
+        msgs = []
+        w.process_entry(entry, cfg, "/p.py", _base_deps({}), log=msgs.append)
+        self.assertTrue(any("https://b/x.mp4" in m for m in msgs))
+
     def test_process_entry_publish_error_skips_actions(self):
         entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
         cfg = w.parse_config('')

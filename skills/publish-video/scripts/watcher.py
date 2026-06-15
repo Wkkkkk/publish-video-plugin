@@ -100,6 +100,8 @@ def process_entry(entry, cfg, script_path, deps, log) -> dict:
         log(f"publish failed for {entry['url']}: {msg}")
         return {"entry": entry, "ok": False, "error": msg}
     result = make_result(entry, published)
+    log(f"published {result['platform']}:{result['source_id']} "
+        f"\"{result['title']}\" -> {result['public_url']}")
     outcomes = deps["run_actions"](result, cfg["actions"])
     return {"entry": entry, "ok": True, "result": result, "actions": outcomes}
 
