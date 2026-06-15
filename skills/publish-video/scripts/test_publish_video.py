@@ -12,12 +12,47 @@ class Helpers(unittest.TestCase):
 
     def test_sanitize_filename(self):
         self.assertEqual(v.sanitize_filename("my movie!.mp4"), "my_movie_.mp4")
-        self.assertEqual(v.sanitize_filename("/path/to/Ep 1.mp4"), "Ep_1.mp4")
+        # A slash in a TITLE must become "_", not truncate the title (no basename).
+        self.assertEqual(v.sanitize_filename("系列（1/21）讲透"), "系列_1_21_讲透")
 
     def test_object_key(self):
         self.assertEqual(v.object_key("vod", "a b.mp4", "ID"), "vod/ID-a_b.mp4")
         self.assertEqual(v.object_key("", "a.mp4", "ID"), "ID-a.mp4")
         self.assertEqual(v.object_key("/p/", "a.mp4", "ID"), "p/ID-a.mp4")
+
+    def test_sanitize_filename_preserves_unicode(self):
+        # CJK titles must survive (not become runs of underscores); separators collapse.
+        self.assertEqual(v.sanitize_filename("解析 OpenAI 实用"), "解析_OpenAI_实用")
+        self.assertEqual(v.sanitize_filename("解析、实用｜录屏"), "解析_实用_录屏")
+        self.assertEqual(v.sanitize_filename("a！！！b"), "a_b")  # collapse runs
+        self.assertEqual(v.sanitize_filename("___edge___"), "edge")  # trim edges
+        self.assertEqual(v.sanitize_filename(""), "video")  # never empty
+
+    def test_detect_platform(self):
+        self.assertEqual(v.detect_platform("https://www.youtube.com/watch?v=abc"), "youtube")
+        self.assertEqual(v.detect_platform("https://youtu.be/abc"), "youtube")
+        self.assertEqual(v.detect_platform("https://www.bilibili.com/video/BV1xx"), "bilibili")
+        self.assertEqual(v.detect_platform("https://space.bilibili.com/9/favlist"), "bilibili")
+        self.assertEqual(v.detect_platform("/local/file.mp4"), "local")
+
+    def test_extract_video_id(self):
+        self.assertEqual(v.extract_video_id("https://www.bilibili.com/video/BV12rJA66EBW"), "BV12rJA66EBW")
+        self.assertEqual(v.extract_video_id("https://www.youtube.com/watch?v=2n41YjR5QfU"), "2n41YjR5QfU")
+        self.assertEqual(v.extract_video_id("https://youtu.be/2n41YjR5QfU"), "2n41YjR5QfU")
+        self.assertIsNone(v.extract_video_id("https://example.com/clip.mp4"))
+
+    def test_source_tag(self):
+        self.assertEqual(
+            v.source_tag("https://www.bilibili.com/video/BV12rJA66EBW", today="20260615"),
+            "bilibili-20260615-BV12rJA66EBW")
+        tag = v.source_tag("https://example.com/x.mp4", today="20260615")
+        self.assertTrue(tag.startswith("example-20260615-"))  # id falls back to a short hash
+
+    def test_public_url_encodes_unicode(self):
+        url = v.public_url("https://b.r2.dev", "video/bilibili-20260615-BV1-解析.mp4")
+        self.assertTrue(url.startswith("https://b.r2.dev/video/bilibili-20260615-BV1-"))
+        self.assertNotIn("解析", url)  # CJK percent-encoded
+        self.assertIn("%", url)
 
     def test_build_ytdlp_cmd_with_cookies(self):
         cmd = v.build_ytdlp_cmd("URL", "/tmp/o.mp4", "chrome", "vcodec:h264,acodec:aac")

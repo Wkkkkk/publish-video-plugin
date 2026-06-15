@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime
 import json
 import os
 import re
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -108,7 +110,56 @@ def required_tools(jobs, transcode: bool) -> set:
 
 
 def sanitize_filename(name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(name))
+    # Keep Unicode word chars (CJK included), dot and dash; turn every other char
+    # into "_", then collapse runs and trim edges so CJK titles read cleanly
+    # instead of becoming long underscore runs.
+    # Note: do NOT basename() — titles may contain "/" (e.g. "系列（1/21）"), which a
+    # basename would silently truncate. Callers that pass a real path basename first.
+    safe = re.sub(r"[^\w.-]", "_", name, flags=re.UNICODE)
+    safe = re.sub(r"_+", "_", safe).strip("_")
+    return safe or "video"
+
+
+def detect_platform(source: str) -> str:
+    """Short platform tag from a source URL ('youtube'/'bilibili'/registrable name);
+    'local' when there is no host (local file path)."""
+    host = (urllib.parse.urlparse(source).hostname or "").lower()
+    if not host:
+        return "local"
+    if "youtube" in host or host.endswith("youtu.be"):
+        return "youtube"
+    if "bilibili" in host:
+        return "bilibili"
+    parts = host.split(".")
+    return parts[-2] if len(parts) >= 2 else host
+
+
+def extract_video_id(source: str):
+    """Canonical video id from a source URL, or None. Used so re-publishing the same
+    video overwrites its object instead of creating a duplicate."""
+    m = re.search(r"\b(BV[0-9A-Za-z]{8,})\b", source)  # bilibili
+    if m:
+        return m.group(1)
+    parsed = urllib.parse.urlparse(source)
+    qs = urllib.parse.parse_qs(parsed.query)
+    if qs.get("v"):  # youtube watch?v=
+        return qs["v"][0]
+    if (parsed.hostname or "").endswith("youtu.be"):
+        seg = parsed.path.lstrip("/").split("/")[0]
+        if seg:
+            return seg
+    m = re.search(r"/video/(av\d+)", source)  # bilibili legacy av id
+    if m:
+        return m.group(1)
+    return None
+
+
+def source_tag(source: str, today: str | None = None) -> str:
+    """Deterministic key stem '{platform}-{YYYYMMDD}-{id}'. Falls back to a short
+    random suffix when no video id can be parsed (keeps keys unique)."""
+    today = today or datetime.date.today().strftime("%Y%m%d")
+    vid = extract_video_id(source) or uuid.uuid4().hex[:8]
+    return f"{detect_platform(source)}-{today}-{vid}"
 
 
 def object_key(prefix: str, filename: str, uid: str) -> str:
@@ -156,7 +207,8 @@ def build_payload(title: str, url: str, duration_secs: int) -> dict:
 
 
 def public_url(base: str, key: str) -> str:
-    return f"{base.rstrip('/')}/{key.lstrip('/')}"
+    # Percent-encode the key path (keeps "/") so Unicode keys yield a valid URL.
+    return f"{base.rstrip('/')}/{urllib.parse.quote(key.lstrip('/'))}"
 
 
 def require_env(*names):
@@ -396,7 +448,7 @@ def process_job(source, stype, args, endpoint, bucket, public_base) -> dict:
         duration = probe_duration(final_path)
         title = derive_title(source, stype, args.title, args.cookies, dry_run=False)
         ext = os.path.splitext(final_path)[1].lstrip(".").lower() or "mp4"
-        key = object_key(args.key_prefix, sanitize_filename(title) + "." + ext, uuid.uuid4().hex)
+        key = object_key(args.key_prefix, sanitize_filename(title) + "." + ext, source_tag(source))
         upload_to_bucket(final_path, endpoint, bucket, key, content_type_for(final_path))
         return build_result(source, stype, title, public_url(public_base, key),
                             key, duration, passthrough, transcoded)
@@ -460,7 +512,7 @@ def main():
 
     if args.dry_run:
         results = [plan_job(s, t, args.key_prefix, public_base, args.title, args.transcode,
-                            uuid.uuid4().hex) for s, t in jobs]
+                            source_tag(s)) for s, t in jobs]
         print(json.dumps(build_envelope(results), indent=2))
         return
 
