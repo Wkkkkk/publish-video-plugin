@@ -116,6 +116,17 @@ def process_entry(entry, cfg, script_path, deps, log) -> dict:
     return {"entry": entry, "ok": True, "result": result, "actions": outcomes}
 
 
+def format_summary(result: dict) -> str:
+    outcomes = result.get("outcomes", [])
+    published = sum(1 for o in outcomes if o.get("ok"))
+    failed = len(outcomes) - published
+    line = f"run done: {published} published, {failed} failed"
+    n = len(result.get("listing_errors") or [])
+    if n:
+        line += f" · {n} listing error" + ("s" if n != 1 else "")
+    return line
+
+
 def tick(cfg, script_path, deps, log) -> list:
     seen = deps["load_state"](cfg["state_path"])
     # Listing phase (serial, cheap): snapshot all fresh entries against `seen` before

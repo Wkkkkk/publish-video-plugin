@@ -484,6 +484,24 @@ class Orchestrate(unittest.TestCase):
         self.assertTrue(all(o["ok"] for o in handled))
         self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
 
+    def test_format_summary_counts(self):
+        result = {"outcomes": [{"ok": True}, {"ok": True}, {"ok": False}], "listing_errors": []}
+        self.assertEqual(w.format_summary(result), "run done: 2 published, 1 failed")
+
+    def test_format_summary_idle(self):
+        self.assertEqual(w.format_summary({"outcomes": [], "listing_errors": []}),
+                         "run done: 0 published, 0 failed")
+
+    def test_format_summary_one_listing_error(self):
+        result = {"outcomes": [{"ok": True}], "listing_errors": ["youtube"]}
+        self.assertEqual(w.format_summary(result),
+                         "run done: 1 published, 0 failed · 1 listing error")
+
+    def test_format_summary_two_listing_errors(self):
+        result = {"outcomes": [], "listing_errors": ["youtube", "bilibili"]}
+        self.assertEqual(w.format_summary(result),
+                         "run done: 0 published, 0 failed · 2 listing errors")
+
     def test_tick_contains_worker_exception_and_others_continue(self):
         entries = [
             {"platform": "youtube", "id": "boom", "url": "boom_url", "title": "t"},
