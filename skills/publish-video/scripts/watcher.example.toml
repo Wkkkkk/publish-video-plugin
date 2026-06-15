@@ -28,3 +28,9 @@ channel = 7
 [[actions]]
 name = "summarize"             # stub in v1 (no-op)
 enabled = false
+
+# Run-level notification (macOS Notification Center) after each poll.
+[notify]
+enabled = false                # set true to get a desktop notification
+trigger = "activity"           # activity (published>0 or failed>0 or listing error) | failure | always
+title = "publish-video watcher"

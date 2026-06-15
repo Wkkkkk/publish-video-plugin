@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
         "bilibili": {"source": "watch_later"},
     },
     "actions": [{"name": "mytv", "enabled": False, "channel": 0}],
+    "notify": {"enabled": False, "trigger": "activity", "title": "publish-video watcher"},
 }
 
 
@@ -166,6 +167,17 @@ def tick(cfg, script_path, deps, log) -> dict:
     return {"outcomes": outcomes, "listing_errors": listing_errors}
 
 
+def run_once(cfg, script_path, deps, log) -> dict:
+    result = tick(cfg, script_path, deps, log)
+    summary = format_summary(result)
+    log(summary)
+    try:  # a notifier failure must never abort the run
+        deps["notify"](result, cfg["notify"], summary.removeprefix("run done: "))
+    except Exception as e:
+        log(f"notify failed: {e}")
+    return result
+
+
 ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "publish_video.py")
 
 
@@ -178,6 +190,7 @@ def build_deps() -> dict:
         "save_state": watcher_state.save_state,
         "new_entries": watcher_state.new_entries,
         "entry_key": watcher_state.entry_key,
+        "notify": watcher_actions.notify_run,
     }
 
 
@@ -238,10 +251,10 @@ def main():
 
     deps = build_deps()
     if args.once:
-        tick(cfg, ENGINE, deps, log)
+        run_once(cfg, ENGINE, deps, log)
         return
     while True:
-        tick(cfg, ENGINE, deps, log)
+        run_once(cfg, ENGINE, deps, log)
         log(f"sleeping {cfg['poll_interval_mins']}m")
         time.sleep(cfg["poll_interval_mins"] * 60)
 

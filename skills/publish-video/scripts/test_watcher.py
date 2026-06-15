@@ -341,6 +341,12 @@ class Config(unittest.TestCase):
         w.validate_config(cfg)
         self.assertFalse(cfg["state_path"].startswith("~"))
 
+    def test_default_config_has_notify_block(self):
+        cfg = w.parse_config("")  # empty file -> all defaults
+        self.assertEqual(cfg["notify"]["enabled"], False)
+        self.assertEqual(cfg["notify"]["trigger"], "activity")
+        self.assertNotIn("notify", [a.get("name") for a in cfg["actions"]])
+
 
 class Publish(unittest.TestCase):
     def test_build_publish_cmd(self):
@@ -593,11 +599,39 @@ class Orchestrate(unittest.TestCase):
         self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
 
 
+    def test_run_once_logs_summary_and_notifies(self):
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        cfg["notify"] = {"enabled": True, "trigger": "activity", "title": "T"}
+        notified = []
+        deps = _base_deps({
+            "list_entries": lambda *a, **k: [
+                {"platform": "youtube", "id": "v1", "url": "u1", "title": "t"}],
+            "notify": lambda result, ncfg, message, **kw: notified.append((ncfg, message)),
+        })
+        msgs = []
+        w.run_once(cfg, "/p.py", deps, log=msgs.append)
+        self.assertIn("run done: 1 published, 0 failed", msgs)
+        self.assertEqual(len(notified), 1)
+        self.assertEqual(notified[0][1], "1 published, 0 failed")  # prefix stripped
+
+    def test_run_once_notify_failure_does_not_raise(self):
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        cfg["notify"] = {"enabled": True, "trigger": "always"}
+        def boom(*a, **k):
+            raise RuntimeError("osascript missing")
+        deps = _base_deps({"list_entries": lambda *a, **k: [], "notify": boom})
+        msgs = []
+        w.run_once(cfg, "/p.py", deps, log=msgs.append)  # must not raise
+        self.assertTrue(any("notify failed" in m for m in msgs))
+
+
 class Cli(unittest.TestCase):
     def test_build_deps_has_real_callables(self):
         deps = w.build_deps()
         for key in ("list_entries", "publish", "run_actions", "load_state",
-                    "save_state", "new_entries", "entry_key"):
+                    "save_state", "new_entries", "entry_key", "notify"):
             self.assertTrue(callable(deps[key]), key)
 
     def test_engine_path_points_at_publish_video(self):
