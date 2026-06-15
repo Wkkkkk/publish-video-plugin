@@ -4,6 +4,8 @@
 poll_interval_mins = 60        # loop mode only; ignored with --once
 transcode = false              # re-encode non-H.264/AAC inputs before upload
 max_items = 10                 # only the N latest items per source each pass (0 = no cap)
+concurrency = 5                # how many videos to download/upload at once
+concurrent_fragments = 4       # yt-dlp -N: parallel fragment downloads per video
 cookies_browser = "chrome"     # browser yt-dlp reads cookies from (Watch Later is private)
 state_path = "~/.publish-video-watcher/state.json"  # dedup record; never your source
 
