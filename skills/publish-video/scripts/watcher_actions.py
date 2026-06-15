@@ -40,15 +40,15 @@ def send_macos_notification(title, message, run_fn=subprocess.run) -> None:
     run_fn(["osascript", "-e", script], capture_output=True, text=True)
 
 
-def notify_run(result, notify_cfg, message, send_fn=send_macos_notification) -> dict:
+def notify_action(run_context, opts, log=None, send_fn=send_macos_notification) -> dict:
     """Run-level notifier driven by the run summary. Returns {notified: bool, ...}."""
-    if not notify_cfg.get("enabled"):
+    if not opts.get("enabled"):
         return {"notified": False, "reason": "disabled"}
-    outcomes = result.get("outcomes", [])
+    outcomes = run_context.get("outcomes", [])
     published = sum(1 for o in outcomes if o.get("ok"))
     failed = len(outcomes) - published
-    errors = len(result.get("listing_errors") or [])
-    trigger = notify_cfg.get("trigger", "activity")
+    errors = len(run_context.get("listing_errors") or [])
+    trigger = opts.get("trigger", "activity")
     should = (
         trigger == "always"
         or (trigger == "failure" and (failed or errors))
@@ -56,7 +56,8 @@ def notify_run(result, notify_cfg, message, send_fn=send_macos_notification) -> 
     )
     if not should:
         return {"notified": False, "reason": "trigger not met"}
-    send_fn(notify_cfg.get("title", "publish-video watcher"), message)
+    message = run_context.get("summary", "").removeprefix("run done: ")
+    send_fn(opts.get("title", "publish-video watcher"), message)
     return {"notified": True}
 
 

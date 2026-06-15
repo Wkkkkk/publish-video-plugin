@@ -224,51 +224,45 @@ class Actions(unittest.TestCase):
             't', 'a\\"b', run_fn=lambda cmd, **kw: calls.append(cmd))
         self.assertIn(r'a\\\"b', calls[0][2])
 
-    def test_notify_run_disabled(self):
+    def test_notify_action_disabled(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [{"ok": True}], "listing_errors": []},
-            {"enabled": False, "trigger": "activity"}, "1 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
-        self.assertFalse(out["notified"])
-        self.assertEqual(sent, [])
+        out = act.notify_action(
+            {"outcomes": [{"ok": True}], "listing_errors": [], "summary": "run done: 1 published, 0 failed"},
+            {"enabled": False, "trigger": "activity"}, send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"]); self.assertEqual(sent, [])
 
-    def test_notify_run_activity_fires_on_publish(self):
+    def test_notify_action_activity_fires_on_publish(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [{"ok": True}], "listing_errors": []},
-            {"enabled": True, "trigger": "activity", "title": "T"}, "1 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
+        out = act.notify_action(
+            {"outcomes": [{"ok": True}], "listing_errors": [], "summary": "run done: 1 published, 0 failed"},
+            {"enabled": True, "trigger": "activity", "title": "T"}, send_fn=lambda *a: sent.append(a))
         self.assertTrue(out["notified"])
         self.assertEqual(sent, [("T", "1 published, 0 failed")])
 
-    def test_notify_run_activity_silent_on_idle(self):
+    def test_notify_action_activity_silent_on_idle(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [], "listing_errors": []},
-            {"enabled": True, "trigger": "activity"}, "0 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
-        self.assertFalse(out["notified"])
-        self.assertEqual(sent, [])
+        out = act.notify_action(
+            {"outcomes": [], "listing_errors": [], "summary": "run done: 0 published, 0 failed"},
+            {"enabled": True, "trigger": "activity"}, send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"]); self.assertEqual(sent, [])
 
-    def test_notify_run_failure_trigger_only_on_failure(self):
+    def test_notify_action_failure_trigger_only_on_failure(self):
         sent = []
         cfg = {"enabled": True, "trigger": "failure"}
-        act.notify_run({"outcomes": [{"ok": True}], "listing_errors": []},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [{"ok": True}], "listing_errors": [], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(sent, [])
-        act.notify_run({"outcomes": [{"ok": False}], "listing_errors": []},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [{"ok": False}], "listing_errors": [], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 1)
-        act.notify_run({"outcomes": [], "listing_errors": ["youtube"]},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [], "listing_errors": ["youtube"], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 2)
 
-    def test_notify_run_always_fires_on_idle(self):
+    def test_notify_action_always_fires_on_idle(self):
         sent = []
-        act.notify_run({"outcomes": [], "listing_errors": []},
-                       {"enabled": True, "trigger": "always"}, "m",
-                       send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [], "listing_errors": [], "summary": "s"},
+                          {"enabled": True, "trigger": "always"}, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 1)
 
     def test_run_actions_isolates_failures(self):
