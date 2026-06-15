@@ -34,7 +34,11 @@ DEFAULT_CONFIG = {
 
 def parse_config(text: str) -> dict:
     raw = tomllib.loads(text)
-    return {**DEFAULT_CONFIG, **raw}  # shallow merge: top-level keys override wholesale
+    # Shallow merge: any top-level key present in the file replaces the default
+    # wholesale. In particular, providing ANY [platforms.*] section replaces the
+    # whole platforms table (so you can poll just one platform by listing only it),
+    # and an [[actions]] array replaces the default actions list entirely.
+    return {**DEFAULT_CONFIG, **raw}
 
 
 def load_config(path: str) -> dict:
@@ -43,6 +47,7 @@ def load_config(path: str) -> dict:
 
 
 def validate_config(cfg: dict) -> None:
+    """Reject configs with an unknown platform or an actions entry missing a name."""
     for plat in cfg["platforms"]:
         if plat not in KNOWN_PLATFORMS:
             raise ValueError(f"unknown platform in config: {plat}")

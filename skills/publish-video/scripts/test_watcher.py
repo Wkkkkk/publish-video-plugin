@@ -202,6 +202,13 @@ class Config(unittest.TestCase):
         with self.assertRaises(ValueError):
             w.validate_config(cfg)
 
+    def test_parse_config_platforms_override_is_wholesale(self):
+        # Documented behavior: naming any platform replaces the whole platforms table,
+        # so listing only youtube means bilibili is NOT polled.
+        cfg = w.parse_config('[platforms.youtube]\nsource = "watch_later"\n')
+        self.assertEqual(list(cfg["platforms"]), ["youtube"])
+        self.assertNotIn("bilibili", cfg["platforms"])
+
 
 if __name__ == "__main__":
     unittest.main()
