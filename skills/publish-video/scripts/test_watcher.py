@@ -417,11 +417,14 @@ class Config(unittest.TestCase):
         w.validate_config(cfg)
         self.assertFalse(cfg["state_path"].startswith("~"))
 
-    def test_default_config_has_notify_block(self):
-        cfg = w.parse_config("")  # empty file -> all defaults
-        self.assertEqual(cfg["notify"]["enabled"], False)
-        self.assertEqual(cfg["notify"]["trigger"], "activity")
-        self.assertNotIn("notify", [a.get("name") for a in cfg["actions"]])
+    def test_default_config_has_post_run(self):
+        cfg = w.parse_config("")
+        names = [a.get("name") for a in cfg["post_run"]]
+        self.assertEqual(names, ["notify", "mytv"])
+        mytv = [a for a in cfg["post_run"] if a["name"] == "mytv"][0]
+        self.assertEqual(mytv["type"], "vod_on_demand")
+        self.assertEqual(mytv["channels"], {"youtube": "MyYoutube", "bilibili": "MyBilibili"})
+        self.assertNotIn("notify", cfg)
 
 
 class Publish(unittest.TestCase):
@@ -675,39 +678,41 @@ class Orchestrate(unittest.TestCase):
         self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
 
 
-    def test_run_once_logs_summary_and_notifies(self):
+    def test_run_once_logs_summary_and_runs_post_run(self):
         cfg = w.parse_config('')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
-        cfg["notify"] = {"enabled": True, "trigger": "activity", "title": "T"}
-        notified = []
+        cfg["post_run"] = [{"name": "notify", "enabled": True, "trigger": "activity"}]
+        seen = []
         deps = _base_deps({
             "list_entries": lambda *a, **k: [
                 {"platform": "youtube", "id": "v1", "url": "u1", "title": "t"}],
-            "notify": lambda result, ncfg, message, **kw: notified.append((ncfg, message)),
+            "run_post_run": lambda run_context, post_run_cfg, log=None: seen.append((run_context, post_run_cfg)),
         })
         msgs = []
         w.run_once(cfg, "/p.py", deps, log=msgs.append)
         self.assertIn("run done: 1 published, 0 failed", msgs)
-        self.assertEqual(len(notified), 1)
-        self.assertEqual(notified[0][1], "1 published, 0 failed")  # prefix stripped
+        self.assertEqual(len(seen), 1)
+        ctx, prcfg = seen[0]
+        self.assertEqual(ctx["summary"], "run done: 1 published, 0 failed")
+        self.assertEqual(len(ctx["outcomes"]), 1)
+        self.assertEqual(ctx["listing_errors"], [])
+        self.assertEqual(prcfg, cfg["post_run"])
 
-    def test_run_once_notify_failure_does_not_raise(self):
+    def test_run_once_post_run_failure_does_not_raise(self):
         cfg = w.parse_config('')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
-        cfg["notify"] = {"enabled": True, "trigger": "always"}
-        def boom(*a, **k):
-            raise RuntimeError("osascript missing")
-        deps = _base_deps({"list_entries": lambda *a, **k: [], "notify": boom})
+        def boom(*a, **k): raise RuntimeError("post-run boom")
+        deps = _base_deps({"list_entries": lambda *a, **k: [], "run_post_run": boom})
         msgs = []
         w.run_once(cfg, "/p.py", deps, log=msgs.append)  # must not raise
-        self.assertTrue(any("notify failed" in m for m in msgs))
+        self.assertTrue(any("post-run actions failed" in m for m in msgs))
 
 
 class Cli(unittest.TestCase):
     def test_build_deps_has_real_callables(self):
         deps = w.build_deps()
         for key in ("list_entries", "publish", "run_actions", "load_state",
-                    "save_state", "new_entries", "entry_key", "notify"):
+                    "save_state", "new_entries", "entry_key", "run_post_run"):
             self.assertTrue(callable(deps[key]), key)
 
     def test_engine_path_points_at_publish_video(self):
