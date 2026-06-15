@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import watcher as w
+import watcher_state
 import watcher_state as st
 import watcher_sources as src
 import watcher_actions as act
@@ -258,6 +259,86 @@ class Publish(unittest.TestCase):
         r = w.make_result(entry, published)
         self.assertEqual(r, {"platform": "youtube", "source_id": "abc", "title": "Real",
                              "public_url": "https://b/x.mp4", "duration_secs": 9})
+
+
+def _base_deps(overrides):
+    """Fully-faked deps for tick/process_entry — no network, subprocess, or fs."""
+    deps = {
+        "list_entries": lambda platform, source, cookies: [],
+        "publish": lambda url, script, transcode, cookies: {
+            "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]},
+        "run_actions": lambda result, actions: [{"action": "mytv", "ok": True}],
+        "load_state": lambda path: set(),
+        "save_state": lambda path, keys: None,
+        "new_entries": watcher_state.new_entries,
+        "entry_key": watcher_state.entry_key,
+    }
+    deps.update(overrides)
+    return deps
+
+
+class Orchestrate(unittest.TestCase):
+    def test_process_entry_success_runs_actions(self):
+        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
+        cfg = w.parse_config('')
+        ran = {}
+        deps = _base_deps({"run_actions": lambda result, actions: ran.setdefault("r", result) or []})
+        out = w.process_entry(entry, cfg, "/p.py", deps, log=lambda m: None)
+        self.assertTrue(out["ok"])
+        self.assertEqual(ran["r"]["public_url"], "https://b/x.mp4")
+
+    def test_process_entry_publish_error_skips_actions(self):
+        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
+        cfg = w.parse_config('')
+        ran = {"called": False}
+        deps = _base_deps({
+            "publish": lambda *a: {"results": [{"error": "download failed"}]},
+            "run_actions": lambda *a: ran.update(called=True) or [],
+        })
+        out = w.process_entry(entry, cfg, "/p.py", deps, log=lambda m: None)
+        self.assertFalse(out["ok"])
+        self.assertFalse(ran["called"])
+
+    def test_tick_marks_only_successful_seen(self):
+        entries = [
+            {"platform": "youtube", "id": "good", "url": "u1", "title": "t"},
+            {"platform": "youtube", "id": "bad", "url": "u2", "title": "t"},
+        ]
+        saved = {"keys": None}
+
+        def publish(url, script, transcode, cookies):
+            if url == "u2":
+                return {"results": [{"error": "boom"}]}
+            return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]}
+
+        cfg = w.parse_config('[platforms.youtube]\nsource = "watch_later"\n')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}  # single platform
+        deps = _base_deps({
+            "list_entries": lambda *a: entries,
+            "publish": publish,
+            "save_state": lambda path, keys: saved.update(keys=set(keys)),
+        })
+        w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        self.assertEqual(saved["keys"], {"youtube:good"})  # bad not recorded → retried next tick
+
+    def test_tick_isolates_listing_failure(self):
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"},
+                            "bilibili": {"source": "watch_later"}}
+        published = {"count": 0}
+
+        def list_entries(platform, source, cookies):
+            if platform == "youtube":
+                raise RuntimeError("yt listing down")
+            return [{"platform": "bilibili", "id": "b1", "url": "u", "title": "t"}]
+
+        def publish(*a):
+            published["count"] += 1
+            return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 1, "title": "T"}]}
+
+        deps = _base_deps({"list_entries": list_entries, "publish": publish})
+        w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
 
 
 if __name__ == "__main__":

@@ -88,3 +88,35 @@ def make_result(entry: dict, published: dict) -> dict:
         "public_url": published["public_url"],
         "duration_secs": published.get("duration_secs", 0),
     }
+
+
+def process_entry(entry, cfg, script_path, deps, log) -> dict:
+    envelope = deps["publish"](entry["url"], script_path, cfg["transcode"], cfg["cookies_browser"])
+    published = first_result(envelope)
+    if not published or "error" in published:
+        msg = published.get("error", "no result") if published else "no result"
+        log(f"publish failed for {entry['url']}: {msg}")
+        return {"entry": entry, "ok": False, "error": msg}
+    result = make_result(entry, published)
+    outcomes = deps["run_actions"](result, cfg["actions"])
+    return {"entry": entry, "ok": True, "result": result, "actions": outcomes}
+
+
+def tick(cfg, script_path, deps, log) -> list:
+    seen = deps["load_state"](cfg["state_path"])
+    handled = []
+    for platform, pconf in cfg["platforms"].items():
+        try:
+            entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"])
+        except Exception as e:  # one platform's listing failing must not stop the others
+            log(f"listing {platform} failed: {e}")
+            continue
+        fresh = deps["new_entries"](entries, seen)
+        log(f"{platform}: {len(entries)} listed, {len(fresh)} new")
+        for entry in fresh:
+            outcome = process_entry(entry, cfg, script_path, deps, log)
+            handled.append(outcome)
+            if outcome["ok"]:
+                seen.add(deps["entry_key"](entry))
+                deps["save_state"](cfg["state_path"], seen)  # persist after each success (crash-safe)
+    return handled
