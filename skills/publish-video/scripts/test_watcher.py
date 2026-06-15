@@ -105,6 +105,62 @@ class Sources(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             src.list_entries("youtube", "watch_later", "chrome", run_fn=fake_run)
 
+    def test_parse_listing_normalizes_na_to_empty(self):
+        # yt-dlp prints the literal "NA" for a missing field (e.g. Bilibili titles
+        # in --flat-playlist mode). Treat it as a missing title so it gets resolved.
+        got = src.parse_listing("bilibili", "b1\thttps://bili/b1\tNA\n")
+        self.assertEqual(got[0]["title"], "")
+
+    def test_resolve_titles_fills_only_missing(self):
+        entries = [
+            {"platform": "bilibili", "id": "b", "url": "https://bili/b", "title": ""},
+            {"platform": "youtube", "id": "y", "url": "https://yt/y", "title": "Has Title"},
+        ]
+        fetched = []
+
+        def fake_fetch(url, cookies):
+            fetched.append(url)
+            return "Fetched Title"
+
+        out = src.resolve_titles(entries, "chrome", fetch_fn=fake_fetch)
+        self.assertEqual(out[0]["title"], "Fetched Title")
+        self.assertEqual(out[1]["title"], "Has Title")   # already had one, untouched
+        self.assertEqual(fetched, ["https://bili/b"])    # only the missing one fetched
+
+    def test_resolve_titles_tolerates_fetch_failure(self):
+        entries = [{"platform": "bilibili", "id": "b", "url": "u", "title": ""}]
+        out = src.resolve_titles(entries, "chrome", fetch_fn=lambda url, cookies: None)
+        self.assertEqual(out[0]["title"], "")            # None -> "" (no crash)
+
+    def test_list_entries_resolves_missing_titles(self):
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(stdout="b1\thttps://bili/b1\tNA\n")
+
+        got = src.list_entries("bilibili", "watch_later", "chrome",
+                               run_fn=fake_run, fetch_fn=lambda url, cookies: "Real Bili Title")
+        self.assertEqual(got[0]["title"], "Real Bili Title")
+
+    def test_build_list_cmd_caps_with_playlist_end(self):
+        cmd = src.build_list_cmd("URL", "chrome", max_items=10)
+        self.assertIn("--playlist-end", cmd)
+        self.assertIn("10", cmd)
+
+    def test_build_list_cmd_no_cap_when_none(self):
+        cmd = src.build_list_cmd("URL", "chrome", max_items=None)
+        self.assertNotIn("--playlist-end", cmd)
+
+    def test_list_entries_passes_cap_to_cmd(self):
+        calls = {}
+
+        def fake_run(cmd, capture_output, text):
+            calls["cmd"] = cmd
+            return FakeProc(stdout="id1\thttps://x/1\tT\n")
+
+        src.list_entries("youtube", "watch_later", "chrome",
+                         run_fn=fake_run, fetch_fn=lambda u, c: "", max_items=5)
+        self.assertIn("--playlist-end", calls["cmd"])
+        self.assertIn("5", calls["cmd"])
+
 
 SAMPLE_RESULT = {
     "platform": "youtube", "source_id": "abc", "title": "Clip",
@@ -193,6 +249,9 @@ class Config(unittest.TestCase):
         self.assertEqual(cfg["actions"][0],
                          {"name": "mytv", "enabled": True, "channel": 7})
 
+    def test_default_max_items_is_10(self):
+        self.assertEqual(w.parse_config('')["max_items"], 10)
+
     def test_validate_rejects_unknown_platform(self):
         cfg = w.parse_config('[platforms.vimeo]\nsource = "watch_later"\n')
         with self.assertRaises(ValueError):
@@ -269,7 +328,7 @@ class Publish(unittest.TestCase):
 def _base_deps(overrides):
     """Fully-faked deps for tick/process_entry — no network, subprocess, or fs."""
     deps = {
-        "list_entries": lambda platform, source, cookies: [],
+        "list_entries": lambda platform, source, cookies, max_items=None: [],
         "publish": lambda url, script, transcode, cookies: {
             "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]},
         "run_actions": lambda result, actions: [{"action": "mytv", "ok": True}],
@@ -319,7 +378,7 @@ class Orchestrate(unittest.TestCase):
         cfg = w.parse_config('[platforms.youtube]\nsource = "watch_later"\n')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}  # single platform
         deps = _base_deps({
-            "list_entries": lambda *a: entries,
+            "list_entries": lambda *a, **k: entries,
             "publish": publish,
             "save_state": lambda path, keys: saved.update(keys=set(keys)),
         })
@@ -332,7 +391,7 @@ class Orchestrate(unittest.TestCase):
                             "bilibili": {"source": "watch_later"}}
         published = {"count": 0}
 
-        def list_entries(platform, source, cookies):
+        def list_entries(platform, source, cookies, max_items=None):
             if platform == "youtube":
                 raise RuntimeError("yt listing down")
             return [{"platform": "bilibili", "id": "b1", "url": "u", "title": "t"}]
@@ -368,6 +427,10 @@ class Cli(unittest.TestCase):
         self.assertTrue(args.once)
         self.assertEqual(args.platform, "youtube")
         self.assertEqual(args.config, "x.toml")
+
+    def test_parse_args_limit(self):
+        self.assertIsNone(w.parse_args([]).limit)
+        self.assertEqual(w.parse_args(["--limit", "3"]).limit, 3)
 
     def test_select_platforms_all_when_none(self):
         cfg = w.parse_config('')

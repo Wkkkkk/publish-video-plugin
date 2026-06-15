@@ -22,6 +22,7 @@ KNOWN_PLATFORMS = ("youtube", "bilibili")
 DEFAULT_CONFIG = {
     "poll_interval_mins": 60,
     "transcode": False,
+    "max_items": 10,  # cap each source to its N latest items per pass (0 = no cap)
     "cookies_browser": "chrome",
     "state_path": os.path.expanduser("~/.publish-video-watcher/state.json"),
     "platforms": {
@@ -108,7 +109,8 @@ def tick(cfg, script_path, deps, log) -> list:
     handled = []
     for platform, pconf in cfg["platforms"].items():
         try:
-            entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"])
+            entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"],
+                                           max_items=cfg["max_items"])
         except Exception as e:  # one platform's listing failing must not stop the others
             log(f"listing {platform} failed: {e}")
             continue
@@ -157,6 +159,7 @@ def parse_args(argv=None):
     p.add_argument("--once", action="store_true", help="run a single pass, then exit")
     p.add_argument("--platform", choices=KNOWN_PLATFORMS, help="only poll this platform")
     p.add_argument("--dry-run", action="store_true", help="list new items per platform; do not publish")
+    p.add_argument("--limit", type=int, help="cap each source to its N latest items (overrides config max_items)")
     return p.parse_args(argv)
 
 
@@ -170,6 +173,8 @@ def main():
     except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(2)
+    if args.limit is not None:
+        cfg["max_items"] = args.limit
     if shutil.which("yt-dlp") is None:
         print("error: yt-dlp not found on PATH (needed to list sources)", file=sys.stderr)
         sys.exit(2)
@@ -178,7 +183,8 @@ def main():
         seen = watcher_state.load_state(cfg["state_path"])
         for platform, pconf in cfg["platforms"].items():
             try:
-                entries = watcher_sources.list_entries(platform, pconf["source"], cfg["cookies_browser"])
+                entries = watcher_sources.list_entries(platform, pconf["source"], cfg["cookies_browser"],
+                                                        max_items=cfg["max_items"])
             except Exception as e:  # match tick(): one platform failing must not kill the rest
                 log(f"listing {platform} failed: {e}")
                 continue
