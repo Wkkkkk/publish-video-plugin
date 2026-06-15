@@ -191,7 +191,8 @@ def fetch_title(url: str, cookies) -> str | None:
 def download_and_mux(url: str, out_path: str, cookies, format_sort: str):
     cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort)
     print("+ " + " ".join(cmd), file=sys.stderr)
-    if subprocess.run(cmd).returncode != 0:
+    # Route yt-dlp's own stdout (progress/info) to our stderr so stdout stays pure JSON.
+    if subprocess.run(cmd, stdout=sys.stderr).returncode != 0:
         raise PublishError("yt-dlp download/mux failed (see output above)")
 
 
@@ -223,7 +224,8 @@ def download_direct(url: str, out_path: str):
 
 
 def transcode_to_h264(in_path: str, out_path: str):
-    if subprocess.run(build_ffmpeg_transcode_cmd(in_path, out_path)).returncode != 0:
+    # ffmpeg logs to stderr already; pin stdout to stderr too to guarantee pure-JSON stdout.
+    if subprocess.run(build_ffmpeg_transcode_cmd(in_path, out_path), stdout=sys.stderr).returncode != 0:
         raise PublishError("ffmpeg transcode failed (see output above)")
 
 
