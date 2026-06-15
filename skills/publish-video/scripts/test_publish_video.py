@@ -13,17 +13,19 @@ class Helpers(unittest.TestCase):
     def test_sanitize_filename(self):
         self.assertEqual(v.sanitize_filename("my movie!.mp4"), "my_movie_.mp4")
         # A slash in a TITLE must become "_", not truncate the title (no basename).
-        self.assertEqual(v.sanitize_filename("系列（1/21）讲透"), "系列_1_21_讲透")
+        self.assertEqual(v.sanitize_filename("a/b series"), "a_b_series")
 
     def test_object_key(self):
         self.assertEqual(v.object_key("vod", "a b.mp4", "ID"), "vod/ID-a_b.mp4")
         self.assertEqual(v.object_key("", "a.mp4", "ID"), "ID-a.mp4")
         self.assertEqual(v.object_key("/p/", "a.mp4", "ID"), "p/ID-a.mp4")
 
-    def test_sanitize_filename_preserves_unicode(self):
-        # CJK titles must survive (not become runs of underscores); separators collapse.
-        self.assertEqual(v.sanitize_filename("解析 OpenAI 实用"), "解析_OpenAI_实用")
-        self.assertEqual(v.sanitize_filename("解析、实用｜录屏"), "解析_实用_录屏")
+    def test_sanitize_filename_drops_non_ascii(self):
+        # Non-ASCII (CJK etc.) is dropped so object keys / public URLs stay ASCII —
+        # no percent-encoded Chinese in the URL. The video-id keeps the key unique.
+        self.assertEqual(v.sanitize_filename("解析 OpenAI 实用 Agent"), "OpenAI_Agent")
+        self.assertEqual(v.sanitize_filename("【Tech Podcast】别被AI忽悠了"), "Tech_Podcast_AI")
+        self.assertEqual(v.sanitize_filename("这到底是“胃”什么呢"), "video")  # all CJK -> fallback
         self.assertEqual(v.sanitize_filename("a！！！b"), "a_b")  # collapse runs
         self.assertEqual(v.sanitize_filename("___edge___"), "edge")  # trim edges
         self.assertEqual(v.sanitize_filename(""), "video")  # never empty

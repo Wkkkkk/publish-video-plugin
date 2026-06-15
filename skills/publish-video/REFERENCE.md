@@ -46,7 +46,7 @@
   ]
 }
 ```
-- `object_key` — `<prefix>/<platform>-<YYYYMMDD>-<videoid>-<title>.mp4`. Title keeps Unicode (CJK) characters; the `public_url` percent-encodes them. The `videoid` (parsed from the source URL) makes a same-day re-publish overwrite rather than duplicate; when no id can be parsed (e.g. local files) a short random suffix is used instead.
+- `object_key` — `<prefix>/<platform>-<YYYYMMDD>-<videoid>-<title>.mp4`. The title is ASCII-only — non-ASCII (CJK, etc.) is dropped so the URL needs no percent-encoding; an all-non-ASCII title reduces to a generic `video` stem. The `videoid` (parsed from the source URL) makes a same-day re-publish overwrite rather than duplicate and keeps the key unique even when the title is generic; when no id can be parsed (e.g. local files) a short random suffix is used instead.
 - `passthrough` — the file was already a browser-playable MP4 and uploaded unchanged.
 - `transcoded` — the file was re-encoded to H.264/AAC (`--transcode`).
 - With `--sink mytv`, successful items also carry `"mytv_item": <id>`.
