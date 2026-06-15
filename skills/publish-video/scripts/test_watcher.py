@@ -341,5 +341,29 @@ class Orchestrate(unittest.TestCase):
         self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
 
 
+class Cli(unittest.TestCase):
+    def test_build_deps_has_real_callables(self):
+        deps = w.build_deps()
+        for key in ("list_entries", "publish", "run_actions", "load_state",
+                    "save_state", "new_entries", "entry_key"):
+            self.assertTrue(callable(deps[key]), key)
+
+    def test_engine_path_points_at_publish_video(self):
+        self.assertTrue(w.ENGINE.endswith("publish_video.py"))
+
+    def test_parse_args_defaults(self):
+        args = w.parse_args([])
+        self.assertEqual(args.config, "watcher.toml")
+        self.assertFalse(args.once)
+        self.assertFalse(args.dry_run)
+        self.assertIsNone(args.platform)
+
+    def test_parse_args_flags(self):
+        args = w.parse_args(["--once", "--platform", "youtube", "--config", "x.toml"])
+        self.assertTrue(args.once)
+        self.assertEqual(args.platform, "youtube")
+        self.assertEqual(args.config, "x.toml")
+
+
 if __name__ == "__main__":
     unittest.main()

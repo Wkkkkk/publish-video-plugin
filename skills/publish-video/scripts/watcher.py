@@ -120,3 +120,66 @@ def tick(cfg, script_path, deps, log) -> list:
                 seen.add(deps["entry_key"](entry))
                 deps["save_state"](cfg["state_path"], seen)  # persist after each success (crash-safe)
     return handled
+
+
+ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "publish_video.py")
+
+
+def build_deps() -> dict:
+    return {
+        "list_entries": watcher_sources.list_entries,
+        "publish": run_publish,
+        "run_actions": watcher_actions.run_actions,
+        "load_state": watcher_state.load_state,
+        "save_state": watcher_state.save_state,
+        "new_entries": watcher_state.new_entries,
+        "entry_key": watcher_state.entry_key,
+    }
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        description="Poll saved-video sources and publish new items via publish_video.py."
+    )
+    p.add_argument("--config", default="watcher.toml", help="path to TOML config (default: watcher.toml)")
+    p.add_argument("--once", action="store_true", help="run a single pass, then exit")
+    p.add_argument("--platform", choices=KNOWN_PLATFORMS, help="only poll this platform")
+    p.add_argument("--dry-run", action="store_true", help="list new items per platform; do not publish")
+    return p.parse_args(argv)
+
+
+def main():
+    args = parse_args()
+    log = lambda m: print(m, file=sys.stderr)
+    try:
+        cfg = load_config(args.config)
+        validate_config(cfg)
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
+    if args.platform:
+        cfg["platforms"] = {args.platform: cfg["platforms"][args.platform]}
+    if shutil.which("yt-dlp") is None:
+        print("error: yt-dlp not found on PATH (needed to list sources)", file=sys.stderr)
+        sys.exit(2)
+
+    if args.dry_run:
+        seen = watcher_state.load_state(cfg["state_path"])
+        for platform, pconf in cfg["platforms"].items():
+            entries = watcher_sources.list_entries(platform, pconf["source"], cfg["cookies_browser"])
+            fresh = watcher_state.new_entries(entries, seen)
+            print(json.dumps({"platform": platform, "new": fresh}, indent=2))
+        return
+
+    deps = build_deps()
+    if args.once:
+        tick(cfg, ENGINE, deps, log)
+        return
+    while True:
+        tick(cfg, ENGINE, deps, log)
+        log(f"sleeping {cfg['poll_interval_mins']}m")
+        time.sleep(cfg["poll_interval_mins"] * 60)
+
+
+if __name__ == "__main__":
+    main()
