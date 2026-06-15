@@ -93,12 +93,12 @@ Loop mode (no `--once`) polls every `poll_interval_mins`.
 - `concurrent_fragments` — passed to yt-dlp as `-N` (default 4), parallelizing one video's fragment downloads. Speeds up a single large video.
 - `state_path` — local dedup record (leading `~` is expanded). Never your source.
 - `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
-- `actions` — ordered post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize`/`notify` are no-op stubs. Add an action by adding a function in `watcher_actions.py` and a block here.
+- `actions` — ordered per-video post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize` is a no-op stub. Add an action by adding a function in `watcher_actions.py` and a block here. (Notifications are a separate run-level `[notify]` block — see Scheduling.)
 
 ### Behavior & limitations (v1)
 - Read-only source; failed publishes are not recorded and retry next pass.
 - A listing failure on one platform does not stop the others.
-- `summarize`/`notify` are stubs; a real `summarize` needs the local file, which the engine deletes after upload.
+- `summarize` is a stub; a real `summarize` needs the local file, which the engine deletes after upload.
 
 ### Scheduling
 Run `python3 .../watcher.py --once` from a local Claude routine (`/schedule`) or an OS cron/launchd timer. It must run where your cookies + `PUBLISH_VIDEO_*`/`MYTV_*` env resolve (i.e. locally).

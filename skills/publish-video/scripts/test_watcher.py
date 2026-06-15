@@ -216,6 +216,14 @@ class Actions(unittest.TestCase):
             't', 'say "hi"', run_fn=lambda cmd, **kw: calls.append(cmd))
         self.assertIn(r'\"hi\"', calls[0][2])
 
+    def test_send_macos_notification_escapes_backslashes_before_quotes(self):
+        # Order matters: backslashes must be escaped before quotes, else a literal
+        # \" in the input would be double-escaped. Input  a\"b  ->  a\\\"b.
+        calls = []
+        act.send_macos_notification(
+            't', 'a\\"b', run_fn=lambda cmd, **kw: calls.append(cmd))
+        self.assertIn(r'a\\\"b', calls[0][2])
+
     def test_notify_run_disabled(self):
         sent = []
         out = act.notify_run(
