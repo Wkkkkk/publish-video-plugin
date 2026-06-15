@@ -72,10 +72,12 @@ It relies on the same environment as the engine (`PUBLISH_VIDEO_*`, plus `MYTV_*
 | `--once` | off | Run a single pass, then exit (use this for cron/manual runs) |
 | `--platform {youtube,bilibili}` | all | Poll only one platform |
 | `--dry-run` | off | List new items per platform as JSON; no publish |
+| `--limit N` | config `max_items` | Cap each source to its N latest items this run |
 
 Loop mode (no `--once`) polls every `poll_interval_mins`.
 
 ### Config
+- `max_items` — only the N latest items per source are listed each pass (default 10; `0` = no cap). Caps cost at the source via `yt-dlp --playlist-end`, including the per-item title fetch below.
 - `state_path` — local dedup record (leading `~` is expanded). Never your source.
 - `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
 - `actions` — ordered post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize`/`notify` are no-op stubs. Add an action by adding a function in `watcher_actions.py` and a block here.
