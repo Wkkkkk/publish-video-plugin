@@ -136,6 +136,59 @@ class Helpers(unittest.TestCase):
             "https://b.r2.dev/k/x.mp4",
         )
 
+    def test_mytv_request_builds_authed_request(self):
+        captured = {}
+        class FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return b'{"ok": 1}'
+        def fake_urlopen(req):
+            captured["url"] = req.full_url
+            captured["method"] = req.method
+            captured["auth"] = req.headers.get("Authorization")
+            captured["body"] = req.data
+            return FakeResp()
+        out = v.mytv_request("POST", "https://tv/api/admin/channels", "pw",
+                             body={"name": "X"}, urlopen=fake_urlopen)
+        self.assertEqual(out, {"ok": 1})
+        self.assertEqual(captured["method"], "POST")
+        self.assertTrue(captured["auth"].startswith("Basic "))
+        self.assertIn(b'"name": "X"', captured["body"])
+
+    def test_list_channels_calls_get(self):
+        calls = []
+        api = lambda method, url, password, body=None: calls.append((method, url, body)) or [{"id": 1, "name": "A"}]
+        out = v.list_channels("https://tv/", "pw", api=api)
+        self.assertEqual(out, [{"id": 1, "name": "A"}])
+        self.assertEqual(calls[0], ("GET", "https://tv/api/admin/channels", None))
+
+    def test_create_channel_posts_payload(self):
+        calls = []
+        api = lambda method, url, password, body=None: calls.append((method, url, body)) or {"id": 9, "name": "New"}
+        out = v.create_channel("https://tv/", "pw", "New", "saved", "vod_on_demand", api=api)
+        self.assertEqual(out["id"], 9)
+        method, url, body = calls[0]
+        self.assertEqual((method, url), ("POST", "https://tv/api/admin/channels"))
+        self.assertEqual(body, {"name": "New", "category": "saved",
+                                "type": "vod_on_demand", "sort_order": 0})
+
+    def test_ensure_channel_returns_existing_id_without_creating(self):
+        created = []
+        cid = v.ensure_channel("https://tv", "pw", "MyYoutube", "saved", "vod_on_demand",
+                               existing=[{"id": 7, "name": "MyYoutube"}],
+                               create_fn=lambda *a, **k: created.append(a) or {"id": 99})
+        self.assertEqual(cid, 7)
+        self.assertEqual(created, [])
+
+    def test_ensure_channel_creates_when_missing(self):
+        created = []
+        def fake_create(base, password, name, category, channel_type):
+            created.append((name, category, channel_type)); return {"id": 42}
+        cid = v.ensure_channel("https://tv", "pw", "MyBilibili", "saved", "vod_on_demand",
+                               existing=[{"id": 7, "name": "MyYoutube"}], create_fn=fake_create)
+        self.assertEqual(cid, 42)
+        self.assertEqual(created, [("MyBilibili", "saved", "vod_on_demand")])
+
 
 class Errors(unittest.TestCase):
     def test_publisherror_is_exception(self):
