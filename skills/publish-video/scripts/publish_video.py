@@ -117,7 +117,8 @@ def object_key(prefix: str, filename: str, uid: str) -> str:
     return f"{p}/{uid}-{safe}" if p else f"{uid}-{safe}"
 
 
-def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: str):
+def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: str,
+                    concurrent_fragments: int = 1):
     cmd = [
         "yt-dlp",
         "--no-playlist",
@@ -130,6 +131,8 @@ def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: 
         "-o",
         out_path,
     ]
+    if concurrent_fragments and concurrent_fragments > 1:
+        cmd += ["-N", str(concurrent_fragments)]
     if cookies_from_browser:
         cmd += ["--cookies-from-browser", cookies_from_browser]
     cmd += ["--", url]
@@ -188,8 +191,9 @@ def fetch_title(url: str, cookies) -> str | None:
     return title if out.returncode == 0 and title else None
 
 
-def download_and_mux(url: str, out_path: str, cookies, format_sort: str):
-    cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort)
+def download_and_mux(url: str, out_path: str, cookies, format_sort: str,
+                     concurrent_fragments: int = 1):
+    cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort, concurrent_fragments)
     print("+ " + " ".join(cmd), file=sys.stderr)
     # Route yt-dlp's own stdout (progress/info) to our stderr so stdout stays pure JSON.
     if subprocess.run(cmd, stdout=sys.stderr).returncode != 0:
@@ -262,10 +266,11 @@ def ensure_playable(path: str, transcode: bool, workdir: str):
     return path, False, False
 
 
-def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str) -> str:
+def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str,
+            concurrent_fragments: int = 1) -> str:
     if stype == "ytdlp_url":
         out = os.path.join(workdir, "video.mp4")
-        download_and_mux(source, out, cookies, format_sort)
+        download_and_mux(source, out, cookies, format_sort, concurrent_fragments)
         return out
     if stype == "direct_url":
         name = sanitize_filename(os.path.basename(source.split("?", 1)[0])) or "video.mp4"
@@ -360,7 +365,8 @@ def plan_job(source, stype, key_prefix, public_base, title_override, transcode, 
 def process_job(source, stype, args, endpoint, bucket, public_base) -> dict:
     workdir = tempfile.mkdtemp(prefix="publish_video_")
     try:
-        acquired = acquire(source, stype, workdir, args.cookies, args.format_sort)
+        acquired = acquire(source, stype, workdir, args.cookies, args.format_sort,
+                          args.concurrent_fragments)
         final_path, passthrough, transcoded = ensure_playable(acquired, args.transcode, workdir)
         duration = probe_duration(final_path)
         title = derive_title(source, stype, args.title, args.cookies, dry_run=False)
@@ -386,6 +392,8 @@ def main():
                    help="browser for yt-dlp cookies (default: chrome; URL sources)")
     p.add_argument("--format-sort", default="vcodec:h264,acodec:aac",
                    help="yt-dlp -S string (default prefers H.264/AAC)")
+    p.add_argument("--concurrent-fragments", dest="concurrent_fragments", type=int, default=1,
+                   help="yt-dlp -N: parallel fragment downloads per video (default: 1)")
     p.add_argument("--transcode", action="store_true",
                    help="re-encode non-H.264/AAC inputs (default: warn + upload as-is)")
     p.add_argument("--sink", choices=["print", "mytv"], default="print", help="output sink")
