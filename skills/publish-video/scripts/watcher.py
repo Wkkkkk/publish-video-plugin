@@ -54,6 +54,7 @@ def validate_config(cfg: dict) -> None:
     for a in cfg["actions"]:
         if "name" not in a:
             raise ValueError("each [[actions]] entry needs a name")
+    cfg["state_path"] = os.path.expanduser(cfg["state_path"])
 
 
 def build_publish_cmd(url, script_path, transcode, cookies_browser) -> list:

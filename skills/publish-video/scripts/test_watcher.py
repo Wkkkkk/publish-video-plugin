@@ -210,6 +210,11 @@ class Config(unittest.TestCase):
         self.assertEqual(list(cfg["platforms"]), ["youtube"])
         self.assertNotIn("bilibili", cfg["platforms"])
 
+    def test_validate_expands_state_path(self):
+        cfg = w.parse_config('state_path = "~/foo/state.json"')
+        w.validate_config(cfg)
+        self.assertFalse(cfg["state_path"].startswith("~"))
+
 
 class Publish(unittest.TestCase):
     def test_build_publish_cmd(self):
