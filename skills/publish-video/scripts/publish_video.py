@@ -405,24 +405,43 @@ def derive_title(source, stype, override, cookies, dry_run) -> str:
 
 
 def register_item(base: str, channel: int, password: str, payload: dict) -> dict:
-    url = build_register_url(base, channel)
+    return mytv_request("POST", build_register_url(base, channel), password, body=payload)
+
+
+def mytv_request(method, url, password, body=None, urlopen=urllib.request.urlopen) -> dict:
     token = base64.b64encode(f"user:{password}".encode()).decode()
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {token}",
-        },
-    )
+    headers = {"Authorization": f"Basic {token}"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urlopen(req) as resp:
             return json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
-        raise PublishError(f"MyTV API returned {e.code}: {e.read().decode()[:300]}")
+        raise PublishError(f"MyTV API {method} {url} returned {e.code}: {e.read().decode()[:300]}")
     except urllib.error.URLError as e:
         raise PublishError(f"could not reach {url}: {e.reason}")
+
+
+def list_channels(base: str, password: str, api=mytv_request) -> list:
+    return api("GET", f"{base.rstrip('/')}/api/admin/channels", password)
+
+
+def create_channel(base: str, password: str, name: str, category: str,
+                   channel_type: str, api=mytv_request) -> dict:
+    body = {"name": name, "category": category, "type": channel_type, "sort_order": 0}
+    return api("POST", f"{base.rstrip('/')}/api/admin/channels", password, body=body)
+
+
+def ensure_channel(base: str, password: str, name: str, category: str, channel_type: str,
+                   existing: list, create_fn=create_channel) -> int:
+    """Return the id of the channel named `name` from `existing`, creating it if absent."""
+    for ch in existing:
+        if ch.get("name") == name:
+            return ch["id"]
+    return create_fn(base, password, name, category, channel_type)["id"]
 
 
 def plan_job(source, stype, key_prefix, public_base, title_override, transcode, uid) -> dict:

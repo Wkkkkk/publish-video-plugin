@@ -33,8 +33,12 @@ DEFAULT_CONFIG = {
         "youtube": {"source": "watch_later"},
         "bilibili": {"source": "watch_later"},
     },
-    "actions": [{"name": "mytv", "enabled": False, "channel": 0}],
-    "notify": {"enabled": False, "trigger": "activity", "title": "publish-video watcher"},
+    "actions": [{"name": "summarize", "enabled": False}],
+    "post_run": [
+        {"name": "notify", "enabled": False, "trigger": "activity", "title": "publish-video watcher"},
+        {"name": "mytv", "enabled": False, "type": "vod_on_demand", "category": "saved",
+         "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
+    ],
 }
 
 
@@ -171,10 +175,12 @@ def run_once(cfg, script_path, deps, log) -> dict:
     result = tick(cfg, script_path, deps, log)
     summary = format_summary(result)
     log(summary)
-    try:  # a notifier failure must never abort the run
-        deps["notify"](result, cfg["notify"], summary.removeprefix("run done: "))
+    run_context = {"outcomes": result["outcomes"],
+                   "listing_errors": result["listing_errors"], "summary": summary}
+    try:  # post-run actions must never abort the run
+        deps["run_post_run"](run_context, cfg["post_run"], log=log)
     except Exception as e:
-        log(f"notify failed: {e}")
+        log(f"post-run actions failed: {e}")
     return result
 
 
@@ -190,7 +196,7 @@ def build_deps() -> dict:
         "save_state": watcher_state.save_state,
         "new_entries": watcher_state.new_entries,
         "entry_key": watcher_state.entry_key,
-        "notify": watcher_actions.notify_run,
+        "run_post_run": watcher_actions.run_post_run,
     }
 
 

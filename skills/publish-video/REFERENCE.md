@@ -93,7 +93,8 @@ Loop mode (no `--once`) polls every `poll_interval_mins`.
 - `concurrent_fragments` — passed to yt-dlp as `-N` (default 4), parallelizing one video's fragment downloads. Speeds up a single large video.
 - `state_path` — local dedup record (leading `~` is expanded). Never your source.
 - `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
-- `actions` — ordered per-video post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize` is a no-op stub. Add an action by adding a function in `watcher_actions.py` and a block here. (Notifications are a separate run-level `[notify]` block — see Scheduling.)
+- `actions` — ordered per-video post-publish steps (run once per published video). `summarize` is a no-op stub. Add one via a function + an `ACTIONS` entry + a config block.
+- `post_run` — ordered run-level actions (run once per poll, after publishing), via a parallel `[[post_run]]` registry. Built in: `notify` (macOS Notification Center) and `mytv` (auto-register published videos into MyTV). Add one via a function + a `POST_RUN_ACTIONS` entry + a `[[post_run]]` block.
 
 ### Behavior & limitations (v1)
 - Read-only source; failed publishes are not recorded and retry next pass.
@@ -109,6 +110,9 @@ copytruncate when it exceeds 5 MB, keeping one previous generation (`watcher.log
 Each poll ends with a one-line summary: `run done: N published, M failed`
 (plus ` · K listing errors` when a platform's listing fails).
 
-Set `[notify] enabled = true` in `watcher.toml` for a macOS Notification Center
-alert after each poll. `trigger` is `activity` (published or failed > 0, or a
-listing error), `failure` (only on failure), or `always`.
+`[[post_run]]` actions run once after each poll. `notify` (macOS Notification Center)
+takes `trigger` = `activity` (published or failed > 0, or a listing error) | `failure` | `always`.
+`mytv` auto-registers each published video into a MyTV channel **per platform**, creating the
+channel if missing: the channel name is `channels.<platform>` (e.g. `youtube = "MyYoutube"`),
+defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. Needs
+`MYTV_BASE_URL` + `MYTV_ADMIN_PASSWORD` in the environment.

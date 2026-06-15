@@ -176,26 +176,97 @@ class Actions(unittest.TestCase):
         ]
         self.assertEqual(act.enabled_actions(config), [("mytv", {"channel": 7})])
 
-    def test_run_mytv_uses_engine_helpers(self):
-        captured = {}
+    def test_default_channel_name_derives(self):
+        self.assertEqual(act.default_channel_name("youtube"), "MyYoutube")
+        self.assertEqual(act.default_channel_name("bilibili"), "MyBilibili")
+        self.assertEqual(act.default_channel_name("vimeo"), "MyVimeo")
 
-        def fake_register(base, channel, password, payload):
-            captured.update(base=base, channel=channel, password=password, payload=payload)
-            return {"id": 99}
+    def _mytv_ctx(self):
+        return {"outcomes": [
+            {"ok": True, "result": {"platform": "youtube", "title": "Y1",
+                                    "public_url": "https://b/y1.mp4", "duration_secs": 10}},
+            {"ok": True, "result": {"platform": "bilibili", "title": "B1",
+                                    "public_url": "https://b/b1.mp4", "duration_secs": 20}},
+            {"ok": False, "error": "x"},
+        ], "listing_errors": [], "summary": "s"}
 
-        out = act.run_mytv(
-            SAMPLE_RESULT, {"channel": 7}, register_fn=fake_register,
+    def test_mytv_action_ensures_per_platform_and_registers(self):
+        ensured, registered = [], []
+        out = act.mytv_action(
+            self._mytv_ctx(),
+            {"enabled": True, "type": "vod_on_demand", "category": "saved",
+             "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
             env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda base, pw, name, cat, ctype, existing: (
+                ensured.append(name) or {"MyYoutube": 1, "MyBilibili": 2}[name]),
+            register_item=lambda base, cid, pw, payload: registered.append((cid, payload["title"])) or {"id": cid},
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
         )
-        self.assertEqual(out, {"mytv_item": 99})
-        self.assertEqual(captured["channel"], 7)
-        self.assertEqual(captured["payload"],
-                         {"title": "Clip", "url": "https://b/v/x.mp4", "duration_secs": 42})
+        self.assertEqual(sorted(ensured), ["MyBilibili", "MyYoutube"])
+        self.assertEqual(sorted(registered), [(1, "Y1"), (2, "B1")])
+        self.assertEqual(out["registered"], 2)
 
-    def test_run_mytv_errors_without_env(self):
+    def test_mytv_action_uses_derived_name_when_unconfigured(self):
+        ensured = []
+        act.mytv_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+                            "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda base, pw, name, cat, ctype, existing: ensured.append(name) or 5,
+            register_item=lambda *a, **k: {"id": 5},
+            build_payload=lambda *a, **k: {},
+        )
+        self.assertEqual(ensured, ["MyYoutube"])
+
+    def test_mytv_action_no_items_skips(self):
+        out = act.mytv_action({"outcomes": [{"ok": False}], "listing_errors": [], "summary": "s"},
+                              {"enabled": True}, env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+                              list_channels=lambda *a: (_ for _ in ()).throw(AssertionError("should not fetch")))
+        self.assertIn("skipped", out)
+
+    def test_mytv_action_missing_env_raises(self):
         with self.assertRaises(RuntimeError):
-            act.run_mytv(SAMPLE_RESULT, {"channel": 7},
-                         register_fn=lambda *a: None, env={})
+            act.mytv_action(self._mytv_ctx(), {"enabled": True}, env={})
+
+    def test_mytv_action_isolates_per_item_register_failure(self):
+        registered = []
+        def reg(base, cid, pw, payload):
+            if payload["title"] == "Y1":
+                raise RuntimeError("register boom")
+            registered.append(payload["title"]); return {"id": cid}
+        out = act.mytv_action(
+            self._mytv_ctx(), {"enabled": True},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=lambda *a, **k: 1,
+            register_item=reg,
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+        )
+        self.assertEqual(registered, ["B1"])
+        self.assertEqual(out["registered"], 1)
+
+    def test_mytv_action_isolates_per_platform_ensure_failure(self):
+        registered = []
+        def ensure(base, pw, name, cat, ctype, existing):
+            if name == "MyYoutube":
+                raise RuntimeError("ensure boom")
+            return 2
+        out = act.mytv_action(
+            self._mytv_ctx(),
+            {"enabled": True, "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=ensure,
+            register_item=lambda base, cid, pw, payload: registered.append((cid, payload["title"])) or {"id": cid},
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+        )
+        # youtube's ensure failed -> its item skipped; bilibili still ensured + registered
+        self.assertEqual(registered, [(2, "B1")])
+        self.assertEqual(out["registered"], 1)
+        self.assertEqual(out["channels"], {"bilibili": 2})
 
     def test_stubs_return_skipped(self):
         self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))
@@ -224,51 +295,45 @@ class Actions(unittest.TestCase):
             't', 'a\\"b', run_fn=lambda cmd, **kw: calls.append(cmd))
         self.assertIn(r'a\\\"b', calls[0][2])
 
-    def test_notify_run_disabled(self):
+    def test_notify_action_disabled(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [{"ok": True}], "listing_errors": []},
-            {"enabled": False, "trigger": "activity"}, "1 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
-        self.assertFalse(out["notified"])
-        self.assertEqual(sent, [])
+        out = act.notify_action(
+            {"outcomes": [{"ok": True}], "listing_errors": [], "summary": "run done: 1 published, 0 failed"},
+            {"enabled": False, "trigger": "activity"}, send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"]); self.assertEqual(sent, [])
 
-    def test_notify_run_activity_fires_on_publish(self):
+    def test_notify_action_activity_fires_on_publish(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [{"ok": True}], "listing_errors": []},
-            {"enabled": True, "trigger": "activity", "title": "T"}, "1 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
+        out = act.notify_action(
+            {"outcomes": [{"ok": True}], "listing_errors": [], "summary": "run done: 1 published, 0 failed"},
+            {"enabled": True, "trigger": "activity", "title": "T"}, send_fn=lambda *a: sent.append(a))
         self.assertTrue(out["notified"])
         self.assertEqual(sent, [("T", "1 published, 0 failed")])
 
-    def test_notify_run_activity_silent_on_idle(self):
+    def test_notify_action_activity_silent_on_idle(self):
         sent = []
-        out = act.notify_run(
-            {"outcomes": [], "listing_errors": []},
-            {"enabled": True, "trigger": "activity"}, "0 published, 0 failed",
-            send_fn=lambda *a: sent.append(a))
-        self.assertFalse(out["notified"])
-        self.assertEqual(sent, [])
+        out = act.notify_action(
+            {"outcomes": [], "listing_errors": [], "summary": "run done: 0 published, 0 failed"},
+            {"enabled": True, "trigger": "activity"}, send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"]); self.assertEqual(sent, [])
 
-    def test_notify_run_failure_trigger_only_on_failure(self):
+    def test_notify_action_failure_trigger_only_on_failure(self):
         sent = []
         cfg = {"enabled": True, "trigger": "failure"}
-        act.notify_run({"outcomes": [{"ok": True}], "listing_errors": []},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [{"ok": True}], "listing_errors": [], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(sent, [])
-        act.notify_run({"outcomes": [{"ok": False}], "listing_errors": []},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [{"ok": False}], "listing_errors": [], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 1)
-        act.notify_run({"outcomes": [], "listing_errors": ["youtube"]},
-                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [], "listing_errors": ["youtube"], "summary": "s"},
+                          cfg, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 2)
 
-    def test_notify_run_always_fires_on_idle(self):
+    def test_notify_action_always_fires_on_idle(self):
         sent = []
-        act.notify_run({"outcomes": [], "listing_errors": []},
-                       {"enabled": True, "trigger": "always"}, "m",
-                       send_fn=lambda *a: sent.append(a))
+        act.notify_action({"outcomes": [], "listing_errors": [], "summary": "s"},
+                          {"enabled": True, "trigger": "always"}, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(sent), 1)
 
     def test_run_actions_isolates_failures(self):
@@ -292,6 +357,29 @@ class Actions(unittest.TestCase):
         outcomes = act.run_actions(SAMPLE_RESULT, config, registry={}, log_fn=lambda m: None)
         self.assertFalse(outcomes[0]["ok"])
         self.assertEqual(outcomes[0]["error"], "unknown action")
+
+    def test_run_post_run_dispatches_enabled(self):
+        seen = []
+        registry = {"a": lambda ctx, opts, log=None: seen.append(("a", opts)) or {"did": "a"}}
+        cfg = [{"name": "a", "enabled": True, "x": 1}, {"name": "a", "enabled": False}]
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               cfg, registry=registry, log=lambda m: None)
+        self.assertEqual(seen, [("a", {"x": 1})])
+        self.assertEqual(out[0], {"action": "a", "ok": True, "output": {"did": "a"}})
+
+    def test_run_post_run_isolates_failure(self):
+        def boom(ctx, opts, log=None): raise RuntimeError("kaboom")
+        registry = {"boom": boom, "ok": lambda ctx, opts, log=None: {"fine": True}}
+        cfg = [{"name": "boom", "enabled": True}, {"name": "ok", "enabled": True}]
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               cfg, registry=registry, log=lambda m: None)
+        self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "kaboom")
+        self.assertTrue(out[1]["ok"])
+
+    def test_run_post_run_unknown_action(self):
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               [{"name": "nope", "enabled": True}], registry={}, log=lambda m: None)
+        self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "unknown action")
 
 
 class Config(unittest.TestCase):
@@ -349,11 +437,14 @@ class Config(unittest.TestCase):
         w.validate_config(cfg)
         self.assertFalse(cfg["state_path"].startswith("~"))
 
-    def test_default_config_has_notify_block(self):
-        cfg = w.parse_config("")  # empty file -> all defaults
-        self.assertEqual(cfg["notify"]["enabled"], False)
-        self.assertEqual(cfg["notify"]["trigger"], "activity")
-        self.assertNotIn("notify", [a.get("name") for a in cfg["actions"]])
+    def test_default_config_has_post_run(self):
+        cfg = w.parse_config("")
+        names = [a.get("name") for a in cfg["post_run"]]
+        self.assertEqual(names, ["notify", "mytv"])
+        mytv = [a for a in cfg["post_run"] if a["name"] == "mytv"][0]
+        self.assertEqual(mytv["type"], "vod_on_demand")
+        self.assertEqual(mytv["channels"], {"youtube": "MyYoutube", "bilibili": "MyBilibili"})
+        self.assertNotIn("notify", cfg)
 
 
 class Publish(unittest.TestCase):
@@ -607,39 +698,41 @@ class Orchestrate(unittest.TestCase):
         self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
 
 
-    def test_run_once_logs_summary_and_notifies(self):
+    def test_run_once_logs_summary_and_runs_post_run(self):
         cfg = w.parse_config('')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
-        cfg["notify"] = {"enabled": True, "trigger": "activity", "title": "T"}
-        notified = []
+        cfg["post_run"] = [{"name": "notify", "enabled": True, "trigger": "activity"}]
+        seen = []
         deps = _base_deps({
             "list_entries": lambda *a, **k: [
                 {"platform": "youtube", "id": "v1", "url": "u1", "title": "t"}],
-            "notify": lambda result, ncfg, message, **kw: notified.append((ncfg, message)),
+            "run_post_run": lambda run_context, post_run_cfg, log=None: seen.append((run_context, post_run_cfg)),
         })
         msgs = []
         w.run_once(cfg, "/p.py", deps, log=msgs.append)
         self.assertIn("run done: 1 published, 0 failed", msgs)
-        self.assertEqual(len(notified), 1)
-        self.assertEqual(notified[0][1], "1 published, 0 failed")  # prefix stripped
+        self.assertEqual(len(seen), 1)
+        ctx, prcfg = seen[0]
+        self.assertEqual(ctx["summary"], "run done: 1 published, 0 failed")
+        self.assertEqual(len(ctx["outcomes"]), 1)
+        self.assertEqual(ctx["listing_errors"], [])
+        self.assertEqual(prcfg, cfg["post_run"])
 
-    def test_run_once_notify_failure_does_not_raise(self):
+    def test_run_once_post_run_failure_does_not_raise(self):
         cfg = w.parse_config('')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
-        cfg["notify"] = {"enabled": True, "trigger": "always"}
-        def boom(*a, **k):
-            raise RuntimeError("osascript missing")
-        deps = _base_deps({"list_entries": lambda *a, **k: [], "notify": boom})
+        def boom(*a, **k): raise RuntimeError("post-run boom")
+        deps = _base_deps({"list_entries": lambda *a, **k: [], "run_post_run": boom})
         msgs = []
         w.run_once(cfg, "/p.py", deps, log=msgs.append)  # must not raise
-        self.assertTrue(any("notify failed" in m for m in msgs))
+        self.assertTrue(any("post-run actions failed" in m for m in msgs))
 
 
 class Cli(unittest.TestCase):
     def test_build_deps_has_real_callables(self):
         deps = w.build_deps()
         for key in ("list_entries", "publish", "run_actions", "load_state",
-                    "save_state", "new_entries", "entry_key", "notify"):
+                    "save_state", "new_entries", "entry_key", "run_post_run"):
             self.assertTrue(callable(deps[key]), key)
 
     def test_engine_path_points_at_publish_video(self):

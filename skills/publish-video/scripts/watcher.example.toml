@@ -18,19 +18,21 @@ source = "watch_later"         # or a full playlist/folder URL, e.g.
 [platforms.bilibili]
 source = "watch_later"         # or a full favorites-folder URL
 
-# Post-publish actions run in order, for every newly-published video.
-# Add an action = add a function in watcher_actions.py + a block here.
-[[actions]]
-name = "mytv"
-enabled = false                # set true + a real channel to auto-register into MyTV
-channel = 7
-
+# Per-video actions run in order for each newly-published video.
 [[actions]]
 name = "summarize"             # stub in v1 (no-op)
 enabled = false
 
-# Run-level notification (macOS Notification Center) after each poll.
-[notify]
-enabled = false                # set true to get a desktop notification
+# Run-level actions run once per poll, after publishing.
+[[post_run]]
+name = "notify"                # macOS Notification Center alert
+enabled = false
 trigger = "activity"           # activity (published>0 or failed>0 or listing error) | failure | always
 title = "publish-video watcher"
+
+[[post_run]]
+name = "mytv"                  # auto-register into MyTV, one channel per platform (created if missing)
+enabled = false
+type = "vod_on_demand"
+category = "saved"
+channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }
