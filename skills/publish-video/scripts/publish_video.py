@@ -118,7 +118,8 @@ def object_key(prefix: str, filename: str, uid: str) -> str:
 
 
 def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: str,
-                    concurrent_fragments: int = 1):
+                    concurrent_fragments: int = 1, js_runtimes: str = "node",
+                    remote_components: str = "ejs:github"):
     cmd = [
         "yt-dlp",
         "--no-playlist",
@@ -133,6 +134,13 @@ def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: 
     ]
     if concurrent_fragments and concurrent_fragments > 1:
         cmd += ["-N", str(concurrent_fragments)]
+    # YouTube's signature + n-challenge need an enabled JS runtime (yt-dlp only enables
+    # deno by default) plus the EJS solver script (fetched from yt-dlp's GitHub releases,
+    # cached after first use). Harmless for sites that don't run a JS challenge.
+    if js_runtimes:
+        cmd += ["--js-runtimes", js_runtimes]
+    if remote_components:
+        cmd += ["--remote-components", remote_components]
     if cookies_from_browser:
         cmd += ["--cookies-from-browser", cookies_from_browser]
     cmd += ["--", url]
@@ -181,19 +189,34 @@ def probe_duration(path: str) -> int:
         raise PublishError(f"could not parse ffprobe duration: {out.stdout!r}")
 
 
-def fetch_title(url: str, cookies) -> str | None:
+def build_title_cmd(url: str, cookies, js_runtimes: str = "node",
+                    remote_components: str = "ejs:github"):
     cmd = ["yt-dlp", "--no-playlist", "--print", "title"]
+    # YouTube title extraction (with cookies) runs full format extraction, which now
+    # needs an enabled JS runtime; mirror the download path so titles aren't lost.
+    if js_runtimes:
+        cmd += ["--js-runtimes", js_runtimes]
+    if remote_components:
+        cmd += ["--remote-components", remote_components]
     if cookies:
         cmd += ["--cookies-from-browser", cookies]
     cmd += ["--", url]
+    return cmd
+
+
+def fetch_title(url: str, cookies, js_runtimes: str = "node",
+                remote_components: str = "ejs:github") -> str | None:
+    cmd = build_title_cmd(url, cookies, js_runtimes, remote_components)
     out = subprocess.run(cmd, capture_output=True, text=True)
     title = out.stdout.strip()
     return title if out.returncode == 0 and title else None
 
 
 def download_and_mux(url: str, out_path: str, cookies, format_sort: str,
-                     concurrent_fragments: int = 1):
-    cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort, concurrent_fragments)
+                     concurrent_fragments: int = 1, js_runtimes: str = "node",
+                     remote_components: str = "ejs:github"):
+    cmd = build_ytdlp_cmd(url, out_path, cookies, format_sort, concurrent_fragments,
+                          js_runtimes, remote_components)
     print("+ " + " ".join(cmd), file=sys.stderr)
     # Route yt-dlp's own stdout (progress/info) to our stderr so stdout stays pure JSON.
     if subprocess.run(cmd, stdout=sys.stderr).returncode != 0:
@@ -267,10 +290,12 @@ def ensure_playable(path: str, transcode: bool, workdir: str):
 
 
 def acquire(source: str, stype: str, workdir: str, cookies, format_sort: str,
-            concurrent_fragments: int = 1) -> str:
+            concurrent_fragments: int = 1, js_runtimes: str = "node",
+            remote_components: str = "ejs:github") -> str:
     if stype == "ytdlp_url":
         out = os.path.join(workdir, "video.mp4")
-        download_and_mux(source, out, cookies, format_sort, concurrent_fragments)
+        download_and_mux(source, out, cookies, format_sort, concurrent_fragments,
+                         js_runtimes, remote_components)
         return out
     if stype == "direct_url":
         name = sanitize_filename(os.path.basename(source.split("?", 1)[0])) or "video.mp4"
@@ -366,7 +391,7 @@ def process_job(source, stype, args, endpoint, bucket, public_base) -> dict:
     workdir = tempfile.mkdtemp(prefix="publish_video_")
     try:
         acquired = acquire(source, stype, workdir, args.cookies, args.format_sort,
-                          args.concurrent_fragments)
+                          args.concurrent_fragments, args.js_runtimes, args.remote_components)
         final_path, passthrough, transcoded = ensure_playable(acquired, args.transcode, workdir)
         duration = probe_duration(final_path)
         title = derive_title(source, stype, args.title, args.cookies, dry_run=False)
@@ -394,6 +419,10 @@ def main():
                    help="yt-dlp -S string (default prefers H.264/AAC)")
     p.add_argument("--concurrent-fragments", dest="concurrent_fragments", type=int, default=1,
                    help="yt-dlp -N: parallel fragment downloads per video (default: 1)")
+    p.add_argument("--js-runtimes", dest="js_runtimes", default="node",
+                   help="yt-dlp --js-runtimes for YouTube challenge solving (default: node; \"\" to disable)")
+    p.add_argument("--remote-components", dest="remote_components", default="ejs:github",
+                   help="yt-dlp --remote-components for the EJS solver script (default: ejs:github; \"\" to disable)")
     p.add_argument("--transcode", action="store_true",
                    help="re-encode non-H.264/AAC inputs (default: warn + upload as-is)")
     p.add_argument("--sink", choices=["print", "mytv"], default="print", help="output sink")
