@@ -127,17 +127,19 @@ def format_summary(result: dict) -> str:
     return line
 
 
-def tick(cfg, script_path, deps, log) -> list:
+def tick(cfg, script_path, deps, log) -> dict:
     seen = deps["load_state"](cfg["state_path"])
     # Listing phase (serial, cheap): snapshot all fresh entries against `seen` before
     # the pool starts, so the dedup decision is race-free.
     fresh_all = []
+    listing_errors = []
     for platform, pconf in cfg["platforms"].items():
         try:
             entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"],
                                            max_items=cfg["max_items"])
         except Exception as e:  # one platform's listing failing must not stop the others
             log(f"listing {platform} failed: {e}")
+            listing_errors.append(platform)
             continue
         fresh = deps["new_entries"](entries, seen)
         log(f"{platform}: {len(entries)} listed, {len(fresh)} new")
@@ -159,7 +161,9 @@ def tick(cfg, script_path, deps, log) -> list:
 
     workers = max(1, cfg["concurrency"])
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(work, fresh_all))
+        outcomes = list(pool.map(work, fresh_all))
+    # outcomes: list[{entry, ok, ...}] per fresh item; listing_errors: list[str] of platforms whose listing raised
+    return {"outcomes": outcomes, "listing_errors": listing_errors}
 
 
 ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "publish_video.py")

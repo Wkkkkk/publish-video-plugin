@@ -462,8 +462,10 @@ class Orchestrate(unittest.TestCase):
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 1, "title": "T"}]}
 
         deps = _base_deps({"list_entries": list_entries, "publish": publish})
-        w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        result = w.tick(cfg, "/p.py", deps, log=lambda m: None)
         self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
+        self.assertEqual(result["listing_errors"], ["youtube"])  # failed platform captured
+        self.assertEqual(len(result["outcomes"]), 1)
 
     def test_tick_processes_all_fresh_via_pool(self):
         entries = [{"platform": "youtube", "id": f"v{i}", "url": f"u{i}", "title": "t"}
@@ -480,8 +482,9 @@ class Orchestrate(unittest.TestCase):
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
         deps = _base_deps({"list_entries": lambda *a, **k: entries, "save_state": save})
         handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
-        self.assertEqual(len(handled), 3)
-        self.assertTrue(all(o["ok"] for o in handled))
+        self.assertEqual(len(handled["outcomes"]), 3)
+        self.assertTrue(all(o["ok"] for o in handled["outcomes"]))
+        self.assertEqual(handled["listing_errors"], [])
         self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
 
     def test_format_summary_counts(self):
@@ -522,7 +525,7 @@ class Orchestrate(unittest.TestCase):
             "save_state": lambda path, keys: saved.update(keys=set(keys)),
         })
         handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
-        by_id = {o["entry"]["id"]: o for o in handled}
+        by_id = {o["entry"]["id"]: o for o in handled["outcomes"]}
         self.assertFalse(by_id["boom"]["ok"])           # failure contained, not raised
         self.assertTrue(by_id["good"]["ok"])            # other worker still ran
         self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
