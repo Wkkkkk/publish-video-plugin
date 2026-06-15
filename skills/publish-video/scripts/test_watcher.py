@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import watcher_state as st
+import watcher_sources as src
 
 
 class State(unittest.TestCase):
@@ -31,6 +32,75 @@ class State(unittest.TestCase):
             self.assertEqual(st.load_state(path), {"youtube:a", "bilibili:b"})
             with open(path) as f:
                 self.assertEqual(json.load(f), ["bilibili:b", "youtube:a"])  # sorted
+
+
+class FakeProc:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class Sources(unittest.TestCase):
+    def test_source_to_url_watch_later(self):
+        self.assertEqual(
+            src.source_to_url("youtube", "watch_later"),
+            "https://www.youtube.com/playlist?list=WL",
+        )
+        self.assertEqual(
+            src.source_to_url("bilibili", "watch_later"),
+            src.WATCH_LATER["bilibili"],
+        )
+
+    def test_source_to_url_passthrough_url(self):
+        url = "https://www.youtube.com/playlist?list=PL123"
+        self.assertEqual(src.source_to_url("youtube", url), url)
+
+    def test_source_to_url_rejects_bare_id(self):
+        with self.assertRaises(ValueError):
+            src.source_to_url("youtube", "PL123")
+
+    def test_build_list_cmd_with_cookies(self):
+        cmd = src.build_list_cmd("URL", "chrome")
+        self.assertEqual(cmd[0], "yt-dlp")
+        self.assertIn("--flat-playlist", cmd)
+        self.assertIn("--cookies-from-browser", cmd)
+        self.assertIn("chrome", cmd)
+        self.assertEqual(cmd[-1], "URL")  # url after the "--" guard
+
+    def test_build_list_cmd_without_cookies(self):
+        cmd = src.build_list_cmd("URL", None)
+        self.assertNotIn("--cookies-from-browser", cmd)
+
+    def test_parse_listing(self):
+        stdout = "id1\thttps://x/1\tTitle One\n\nid2\thttps://x/2\tTitle Two\n"
+        got = src.parse_listing("youtube", stdout)
+        self.assertEqual(got, [
+            {"platform": "youtube", "id": "id1", "url": "https://x/1", "title": "Title One"},
+            {"platform": "youtube", "id": "id2", "url": "https://x/2", "title": "Title Two"},
+        ])
+
+    def test_parse_listing_tolerates_missing_title(self):
+        got = src.parse_listing("youtube", "id1\thttps://x/1\n")
+        self.assertEqual(got[0]["title"], "")
+
+    def test_list_entries_runs_and_parses(self):
+        calls = {}
+
+        def fake_run(cmd, capture_output, text):
+            calls["cmd"] = cmd
+            return FakeProc(stdout="id1\thttps://x/1\tT\n")
+
+        got = src.list_entries("youtube", "watch_later", "chrome", run_fn=fake_run)
+        self.assertEqual(got[0]["id"], "id1")
+        self.assertEqual(calls["cmd"][-1], "https://www.youtube.com/playlist?list=WL")
+
+    def test_list_entries_raises_on_failure(self):
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(returncode=1, stderr="boom")
+
+        with self.assertRaises(RuntimeError):
+            src.list_entries("youtube", "watch_later", "chrome", run_fn=fake_run)
 
 
 if __name__ == "__main__":
