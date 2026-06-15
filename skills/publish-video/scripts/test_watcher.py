@@ -465,6 +465,38 @@ class Orchestrate(unittest.TestCase):
         w.tick(cfg, "/p.py", deps, log=lambda m: None)
         self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
 
+    def test_tick_processes_all_fresh_via_pool(self):
+        entries = [{"platform": "youtube", "id": f"v{i}", "url": f"u{i}", "title": "t"}
+                   for i in range(3)]
+        import threading as _t
+        saved = {"keys": set()}
+        save_lock = _t.Lock()
+
+        def save(path, keys):
+            with save_lock:
+                saved["keys"] = set(keys)
+
+        cfg = w.parse_config('')            # concurrency defaults to 5
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        deps = _base_deps({"list_entries": lambda *a, **k: entries, "save_state": save})
+        handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        self.assertEqual(len(handled), 3)
+        self.assertTrue(all(o["ok"] for o in handled))
+        self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
+
+    def test_tick_contains_worker_exception(self):
+        entries = [{"platform": "youtube", "id": "boom", "url": "u", "title": "t"}]
+
+        def publish(*a, **k):
+            raise RuntimeError("publish exploded")
+
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        deps = _base_deps({"list_entries": lambda *a, **k: entries, "publish": publish})
+        handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        self.assertEqual(len(handled), 1)
+        self.assertFalse(handled[0]["ok"])   # contained, not raised
+
 
 class Cli(unittest.TestCase):
     def test_build_deps_has_real_callables(self):

@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import tomllib
 
 import watcher_actions
@@ -116,7 +118,9 @@ def process_entry(entry, cfg, script_path, deps, log) -> dict:
 
 def tick(cfg, script_path, deps, log) -> list:
     seen = deps["load_state"](cfg["state_path"])
-    handled = []
+    # Listing phase (serial, cheap): snapshot all fresh entries against `seen` before
+    # the pool starts, so the dedup decision is race-free.
+    fresh_all = []
     for platform, pconf in cfg["platforms"].items():
         try:
             entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"],
@@ -126,13 +130,25 @@ def tick(cfg, script_path, deps, log) -> list:
             continue
         fresh = deps["new_entries"](entries, seen)
         log(f"{platform}: {len(entries)} listed, {len(fresh)} new")
-        for entry in fresh:
+        fresh_all.extend(fresh)
+
+    lock = threading.Lock()
+
+    def work(entry):
+        try:
             outcome = process_entry(entry, cfg, script_path, deps, log)
-            handled.append(outcome)
-            if outcome["ok"]:
+        except Exception as e:  # contain per item; other workers keep going
+            log(f"error processing {entry.get('url')}: {e}")
+            return {"entry": entry, "ok": False, "error": str(e)}
+        if outcome["ok"]:
+            with lock:  # serialize state mutation + write across workers (crash-safe)
                 seen.add(deps["entry_key"](entry))
-                deps["save_state"](cfg["state_path"], seen)  # persist after each success (crash-safe)
-    return handled
+                deps["save_state"](cfg["state_path"], seen)
+        return outcome
+
+    workers = max(1, cfg["concurrency"])
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(work, fresh_all))
 
 
 ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "publish_video.py")
