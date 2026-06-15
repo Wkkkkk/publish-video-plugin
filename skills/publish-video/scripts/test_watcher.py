@@ -5,6 +5,7 @@ import unittest
 
 import watcher_state as st
 import watcher_sources as src
+import watcher_actions as act
 
 
 class State(unittest.TestCase):
@@ -101,6 +102,68 @@ class Sources(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             src.list_entries("youtube", "watch_later", "chrome", run_fn=fake_run)
+
+
+SAMPLE_RESULT = {
+    "platform": "youtube", "source_id": "abc", "title": "Clip",
+    "public_url": "https://b/v/x.mp4", "duration_secs": 42,
+}
+
+
+class Actions(unittest.TestCase):
+    def test_enabled_actions_filters_and_strips(self):
+        config = [
+            {"name": "mytv", "enabled": True, "channel": 7},
+            {"name": "summarize", "enabled": False},
+        ]
+        self.assertEqual(act.enabled_actions(config), [("mytv", {"channel": 7})])
+
+    def test_run_mytv_uses_engine_helpers(self):
+        captured = {}
+
+        def fake_register(base, channel, password, payload):
+            captured.update(base=base, channel=channel, password=password, payload=payload)
+            return {"id": 99}
+
+        out = act.run_mytv(
+            SAMPLE_RESULT, {"channel": 7}, register_fn=fake_register,
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+        )
+        self.assertEqual(out, {"mytv_item": 99})
+        self.assertEqual(captured["channel"], 7)
+        self.assertEqual(captured["payload"],
+                         {"title": "Clip", "url": "https://b/v/x.mp4", "duration_secs": 42})
+
+    def test_run_mytv_errors_without_env(self):
+        with self.assertRaises(RuntimeError):
+            act.run_mytv(SAMPLE_RESULT, {"channel": 7},
+                         register_fn=lambda *a: None, env={})
+
+    def test_stubs_return_skipped(self):
+        self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))
+        self.assertIn("skipped", act.run_notify(SAMPLE_RESULT, {}))
+
+    def test_run_actions_isolates_failures(self):
+        def boom(result, opts):
+            raise RuntimeError("kaboom")
+
+        def good(result, opts):
+            return {"did": "ok"}
+
+        registry = {"boom": boom, "good": good}
+        config = [
+            {"name": "boom", "enabled": True},
+            {"name": "good", "enabled": True},
+        ]
+        outcomes = act.run_actions(SAMPLE_RESULT, config, registry=registry, log_fn=lambda m: None)
+        self.assertEqual(outcomes[0], {"action": "boom", "ok": False, "error": "kaboom"})
+        self.assertEqual(outcomes[1], {"action": "good", "ok": True, "output": {"did": "ok"}})
+
+    def test_run_actions_unknown_action(self):
+        config = [{"name": "nope", "enabled": True}]
+        outcomes = act.run_actions(SAMPLE_RESULT, config, registry={}, log_fn=lambda m: None)
+        self.assertFalse(outcomes[0]["ok"])
+        self.assertEqual(outcomes[0]["error"], "unknown action")
 
 
 if __name__ == "__main__":
