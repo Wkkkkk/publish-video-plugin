@@ -210,5 +210,55 @@ class Config(unittest.TestCase):
         self.assertNotIn("bilibili", cfg["platforms"])
 
 
+class Publish(unittest.TestCase):
+    def test_build_publish_cmd(self):
+        cmd = w.build_publish_cmd("URL", "/path/publish_video.py", transcode=False,
+                                  cookies_browser="chrome")
+        self.assertEqual(cmd[:2], ["python3", "/path/publish_video.py"])
+        self.assertEqual(cmd[2], "URL")
+        self.assertIn("--cookies-from-browser", cmd)
+        self.assertNotIn("--transcode", cmd)
+
+    def test_build_publish_cmd_transcode(self):
+        cmd = w.build_publish_cmd("URL", "/p.py", transcode=True, cookies_browser="chrome")
+        self.assertIn("--transcode", cmd)
+
+    def test_run_publish_parses_envelope(self):
+        envelope = {"ok": 1, "failed": 0,
+                    "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5,
+                                 "title": "T"}]}
+
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(stdout=json.dumps(envelope))
+
+        out = w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
+        self.assertEqual(out, envelope)
+
+    def test_run_publish_raises_on_config_error(self):
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(returncode=2, stderr="missing env")
+
+        with self.assertRaises(RuntimeError):
+            w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
+
+    def test_run_publish_raises_on_bad_json(self):
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(stdout="not json")
+
+        with self.assertRaises(RuntimeError):
+            w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
+
+    def test_first_result(self):
+        self.assertEqual(w.first_result({"results": [{"a": 1}]}), {"a": 1})
+        self.assertIsNone(w.first_result({"results": []}))
+
+    def test_make_result(self):
+        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "fallback"}
+        published = {"public_url": "https://b/x.mp4", "duration_secs": 9, "title": "Real"}
+        r = w.make_result(entry, published)
+        self.assertEqual(r, {"platform": "youtube", "source_id": "abc", "title": "Real",
+                             "public_url": "https://b/x.mp4", "duration_secs": 9})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,3 +54,37 @@ def validate_config(cfg: dict) -> None:
     for a in cfg["actions"]:
         if "name" not in a:
             raise ValueError("each [[actions]] entry needs a name")
+
+
+def build_publish_cmd(url, script_path, transcode, cookies_browser) -> list:
+    cmd = ["python3", script_path, url, "--cookies-from-browser", cookies_browser]
+    if transcode:
+        cmd.append("--transcode")
+    return cmd
+
+
+def run_publish(url, script_path, transcode, cookies_browser, run_fn=subprocess.run) -> dict:
+    cmd = build_publish_cmd(url, script_path, transcode, cookies_browser)
+    proc = run_fn(cmd, capture_output=True, text=True)
+    # exit 0 = all ok, 1 = item failed (envelope still printed), 2 = config/usage error.
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(f"publish failed (exit {proc.returncode}): {proc.stderr.strip()[:300]}")
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"could not parse publish output: {e}")
+
+
+def first_result(envelope: dict):
+    results = envelope.get("results", [])
+    return results[0] if results else None
+
+
+def make_result(entry: dict, published: dict) -> dict:
+    return {
+        "platform": entry["platform"],
+        "source_id": entry["id"],
+        "title": published.get("title", entry.get("title", "")),
+        "public_url": published["public_url"],
+        "duration_secs": published.get("duration_secs", 0),
+    }
