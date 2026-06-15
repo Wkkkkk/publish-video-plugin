@@ -137,6 +137,17 @@ def build_deps() -> dict:
     }
 
 
+def select_platforms(cfg, platform):
+    """Narrow cfg['platforms'] to a single requested platform, or return all of them
+    when no platform is requested. Raises ValueError if the requested platform is not
+    present in the config (argparse only checks it against the global platform list)."""
+    if platform is None:
+        return cfg["platforms"]
+    if platform not in cfg["platforms"]:
+        raise ValueError(f"--platform {platform} is not configured in this config file")
+    return {platform: cfg["platforms"][platform]}
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
         description="Poll saved-video sources and publish new items via publish_video.py."
@@ -154,11 +165,10 @@ def main():
     try:
         cfg = load_config(args.config)
         validate_config(cfg)
+        cfg["platforms"] = select_platforms(cfg, args.platform)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(2)
-    if args.platform:
-        cfg["platforms"] = {args.platform: cfg["platforms"][args.platform]}
     if shutil.which("yt-dlp") is None:
         print("error: yt-dlp not found on PATH (needed to list sources)", file=sys.stderr)
         sys.exit(2)
@@ -166,7 +176,11 @@ def main():
     if args.dry_run:
         seen = watcher_state.load_state(cfg["state_path"])
         for platform, pconf in cfg["platforms"].items():
-            entries = watcher_sources.list_entries(platform, pconf["source"], cfg["cookies_browser"])
+            try:
+                entries = watcher_sources.list_entries(platform, pconf["source"], cfg["cookies_browser"])
+            except Exception as e:  # match tick(): one platform failing must not kill the rest
+                log(f"listing {platform} failed: {e}")
+                continue
             fresh = watcher_state.new_entries(entries, seen)
             print(json.dumps({"platform": platform, "new": fresh}, indent=2))
         return

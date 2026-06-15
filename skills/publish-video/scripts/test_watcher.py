@@ -364,6 +364,20 @@ class Cli(unittest.TestCase):
         self.assertEqual(args.platform, "youtube")
         self.assertEqual(args.config, "x.toml")
 
+    def test_select_platforms_all_when_none(self):
+        cfg = w.parse_config('')
+        self.assertEqual(set(w.select_platforms(cfg, None)), {"youtube", "bilibili"})
+
+    def test_select_platforms_single(self):
+        cfg = w.parse_config('')
+        self.assertEqual(list(w.select_platforms(cfg, "youtube")), ["youtube"])
+
+    def test_select_platforms_not_configured_raises(self):
+        # Wholesale merge: this config has only youtube, so requesting bilibili must raise.
+        cfg = w.parse_config('[platforms.youtube]\nsource = "watch_later"\n')
+        with self.assertRaises(ValueError):
+            w.select_platforms(cfg, "bilibili")
+
 
 if __name__ == "__main__":
     unittest.main()
