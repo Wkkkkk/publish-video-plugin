@@ -113,6 +113,11 @@ class Helpers(unittest.TestCase):
         self.assertNotIn("--remote-components", cmd)
         self.assertNotIn("--cookies-from-browser", cmd)
 
+    def test_build_ytdlp_cmd_no_progress(self):
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264")
+        self.assertIn("--no-progress", cmd)
+        self.assertEqual(cmd[-1], "URL")  # flags stay before the "--" guard
+
     def test_build_register_url(self):
         self.assertEqual(
             v.build_register_url("https://h.fly.dev/", 7),

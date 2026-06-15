@@ -199,7 +199,77 @@ class Actions(unittest.TestCase):
 
     def test_stubs_return_skipped(self):
         self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))
-        self.assertIn("skipped", act.run_notify(SAMPLE_RESULT, {}))
+
+    def test_send_macos_notification_command_shape(self):
+        calls = []
+        act.send_macos_notification(
+            "publish-video watcher", '2 published, 0 failed',
+            run_fn=lambda cmd, **kw: calls.append(cmd))
+        self.assertEqual(calls[0][0], "osascript")
+        self.assertEqual(calls[0][1], "-e")
+        self.assertIn('display notification "2 published, 0 failed"', calls[0][2])
+        self.assertIn('with title "publish-video watcher"', calls[0][2])
+
+    def test_send_macos_notification_escapes_quotes(self):
+        calls = []
+        act.send_macos_notification(
+            't', 'say "hi"', run_fn=lambda cmd, **kw: calls.append(cmd))
+        self.assertIn(r'\"hi\"', calls[0][2])
+
+    def test_send_macos_notification_escapes_backslashes_before_quotes(self):
+        # Order matters: backslashes must be escaped before quotes, else a literal
+        # \" in the input would be double-escaped. Input  a\"b  ->  a\\\"b.
+        calls = []
+        act.send_macos_notification(
+            't', 'a\\"b', run_fn=lambda cmd, **kw: calls.append(cmd))
+        self.assertIn(r'a\\\"b', calls[0][2])
+
+    def test_notify_run_disabled(self):
+        sent = []
+        out = act.notify_run(
+            {"outcomes": [{"ok": True}], "listing_errors": []},
+            {"enabled": False, "trigger": "activity"}, "1 published, 0 failed",
+            send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"])
+        self.assertEqual(sent, [])
+
+    def test_notify_run_activity_fires_on_publish(self):
+        sent = []
+        out = act.notify_run(
+            {"outcomes": [{"ok": True}], "listing_errors": []},
+            {"enabled": True, "trigger": "activity", "title": "T"}, "1 published, 0 failed",
+            send_fn=lambda *a: sent.append(a))
+        self.assertTrue(out["notified"])
+        self.assertEqual(sent, [("T", "1 published, 0 failed")])
+
+    def test_notify_run_activity_silent_on_idle(self):
+        sent = []
+        out = act.notify_run(
+            {"outcomes": [], "listing_errors": []},
+            {"enabled": True, "trigger": "activity"}, "0 published, 0 failed",
+            send_fn=lambda *a: sent.append(a))
+        self.assertFalse(out["notified"])
+        self.assertEqual(sent, [])
+
+    def test_notify_run_failure_trigger_only_on_failure(self):
+        sent = []
+        cfg = {"enabled": True, "trigger": "failure"}
+        act.notify_run({"outcomes": [{"ok": True}], "listing_errors": []},
+                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        self.assertEqual(sent, [])
+        act.notify_run({"outcomes": [{"ok": False}], "listing_errors": []},
+                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        self.assertEqual(len(sent), 1)
+        act.notify_run({"outcomes": [], "listing_errors": ["youtube"]},
+                       cfg, "m", send_fn=lambda *a: sent.append(a))
+        self.assertEqual(len(sent), 2)
+
+    def test_notify_run_always_fires_on_idle(self):
+        sent = []
+        act.notify_run({"outcomes": [], "listing_errors": []},
+                       {"enabled": True, "trigger": "always"}, "m",
+                       send_fn=lambda *a: sent.append(a))
+        self.assertEqual(len(sent), 1)
 
     def test_run_actions_isolates_failures(self):
         def boom(result, opts):
@@ -278,6 +348,12 @@ class Config(unittest.TestCase):
         cfg = w.parse_config('state_path = "~/foo/state.json"')
         w.validate_config(cfg)
         self.assertFalse(cfg["state_path"].startswith("~"))
+
+    def test_default_config_has_notify_block(self):
+        cfg = w.parse_config("")  # empty file -> all defaults
+        self.assertEqual(cfg["notify"]["enabled"], False)
+        self.assertEqual(cfg["notify"]["trigger"], "activity")
+        self.assertNotIn("notify", [a.get("name") for a in cfg["actions"]])
 
 
 class Publish(unittest.TestCase):
@@ -462,8 +538,10 @@ class Orchestrate(unittest.TestCase):
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 1, "title": "T"}]}
 
         deps = _base_deps({"list_entries": list_entries, "publish": publish})
-        w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        result = w.tick(cfg, "/p.py", deps, log=lambda m: None)
         self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
+        self.assertEqual(result["listing_errors"], ["youtube"])  # failed platform captured
+        self.assertEqual(len(result["outcomes"]), 1)
 
     def test_tick_processes_all_fresh_via_pool(self):
         entries = [{"platform": "youtube", "id": f"v{i}", "url": f"u{i}", "title": "t"}
@@ -480,9 +558,28 @@ class Orchestrate(unittest.TestCase):
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
         deps = _base_deps({"list_entries": lambda *a, **k: entries, "save_state": save})
         handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
-        self.assertEqual(len(handled), 3)
-        self.assertTrue(all(o["ok"] for o in handled))
+        self.assertEqual(len(handled["outcomes"]), 3)
+        self.assertTrue(all(o["ok"] for o in handled["outcomes"]))
+        self.assertEqual(handled["listing_errors"], [])
         self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
+
+    def test_format_summary_counts(self):
+        result = {"outcomes": [{"ok": True}, {"ok": True}, {"ok": False}], "listing_errors": []}
+        self.assertEqual(w.format_summary(result), "run done: 2 published, 1 failed")
+
+    def test_format_summary_idle(self):
+        self.assertEqual(w.format_summary({"outcomes": [], "listing_errors": []}),
+                         "run done: 0 published, 0 failed")
+
+    def test_format_summary_one_listing_error(self):
+        result = {"outcomes": [{"ok": True}], "listing_errors": ["youtube"]}
+        self.assertEqual(w.format_summary(result),
+                         "run done: 1 published, 0 failed · 1 listing error")
+
+    def test_format_summary_two_listing_errors(self):
+        result = {"outcomes": [], "listing_errors": ["youtube", "bilibili"]}
+        self.assertEqual(w.format_summary(result),
+                         "run done: 0 published, 0 failed · 2 listing errors")
 
     def test_tick_contains_worker_exception_and_others_continue(self):
         entries = [
@@ -504,17 +601,45 @@ class Orchestrate(unittest.TestCase):
             "save_state": lambda path, keys: saved.update(keys=set(keys)),
         })
         handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
-        by_id = {o["entry"]["id"]: o for o in handled}
+        by_id = {o["entry"]["id"]: o for o in handled["outcomes"]}
         self.assertFalse(by_id["boom"]["ok"])           # failure contained, not raised
         self.assertTrue(by_id["good"]["ok"])            # other worker still ran
         self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
+
+
+    def test_run_once_logs_summary_and_notifies(self):
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        cfg["notify"] = {"enabled": True, "trigger": "activity", "title": "T"}
+        notified = []
+        deps = _base_deps({
+            "list_entries": lambda *a, **k: [
+                {"platform": "youtube", "id": "v1", "url": "u1", "title": "t"}],
+            "notify": lambda result, ncfg, message, **kw: notified.append((ncfg, message)),
+        })
+        msgs = []
+        w.run_once(cfg, "/p.py", deps, log=msgs.append)
+        self.assertIn("run done: 1 published, 0 failed", msgs)
+        self.assertEqual(len(notified), 1)
+        self.assertEqual(notified[0][1], "1 published, 0 failed")  # prefix stripped
+
+    def test_run_once_notify_failure_does_not_raise(self):
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        cfg["notify"] = {"enabled": True, "trigger": "always"}
+        def boom(*a, **k):
+            raise RuntimeError("osascript missing")
+        deps = _base_deps({"list_entries": lambda *a, **k: [], "notify": boom})
+        msgs = []
+        w.run_once(cfg, "/p.py", deps, log=msgs.append)  # must not raise
+        self.assertTrue(any("notify failed" in m for m in msgs))
 
 
 class Cli(unittest.TestCase):
     def test_build_deps_has_real_callables(self):
         deps = w.build_deps()
         for key in ("list_entries", "publish", "run_actions", "load_state",
-                    "save_state", "new_entries", "entry_key"):
+                    "save_state", "new_entries", "entry_key", "notify"):
             self.assertTrue(callable(deps[key]), key)
 
     def test_engine_path_points_at_publish_video(self):

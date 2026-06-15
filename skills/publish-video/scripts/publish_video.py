@@ -174,6 +174,7 @@ def build_ytdlp_cmd(url: str, out_path: str, cookies_from_browser, format_sort: 
     cmd = [
         "yt-dlp",
         "--no-playlist",
+        "--no-progress",  # progress bars are noise in non-interactive/log output
         "-f",
         AVC1_FORMAT,
         "-S",
