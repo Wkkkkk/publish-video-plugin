@@ -11,10 +11,18 @@
 | `--cookies-from-browser B` | `chrome` | Browser for yt-dlp cookies (URL sources) |
 | `--format-sort SORT` | `vcodec:h264,acodec:aac` | yt-dlp `-S` string |
 | `--concurrent-fragments N` | `1` | yt-dlp `-N`: parallel fragment downloads per video |
+| `--js-runtimes RT` | `node` | yt-dlp `--js-runtimes`: JS runtime for YouTube challenge solving (`""` disables) |
+| `--remote-components RC` | `ejs:github` | yt-dlp `--remote-components`: fetch the EJS solver script (`""` disables) |
 | `--transcode` | off | Re-encode non-H.264/AAC inputs to H.264/AAC (else warn + upload as-is) |
 | `--sink {print,mytv}` | `print` | Output sink; `mytv` also registers a playlist item |
 | `--channel N` | — | MyTV channel id (required with `--sink mytv`) |
 | `--dry-run` | off | Print planned actions; no download/upload/register |
+
+> **YouTube:** modern yt-dlp requires an enabled JavaScript runtime to solve YouTube's
+> signature + n-challenge (only `deno` is enabled by default). The defaults above opt in
+> to an installed runtime (`node`) and fetch yt-dlp's official EJS solver script from
+> GitHub on first use (cached). Requires `node` (or `deno`/`bun`) on PATH; harmless for
+> sites that run no JS challenge (e.g. Bilibili). Set both flags to `""` to disable.
 
 ## Environment
 | Var | When | Purpose |

@@ -17,6 +17,7 @@ Publish one or more videos to a public URL via S3-compatible object storage.
 ## Prerequisites
 - `python3` with `boto3` (`pip install boto3`)
 - `yt-dlp` (only for site URLs), `ffmpeg`/`ffprobe` (ffprobe always; ffmpeg only with `--transcode`)
+- For YouTube only: a JavaScript runtime on PATH (`node`, or `deno`/`bun`) — yt-dlp needs it to solve YouTube's signature/n-challenge. See REFERENCE.md ("YouTube").
 - Required env: `PUBLISH_VIDEO_S3_ENDPOINT`, `PUBLISH_VIDEO_S3_BUCKET`, `PUBLISH_VIDEO_PUBLIC_BASE_URL`. Bucket credentials come from boto3's standard chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or `~/.aws/credentials`, etc.). For the MyTV sink only: `MYTV_BASE_URL`, `MYTV_ADMIN_PASSWORD`.
 
 The script fails with a clear stderr message + exit code 2 if a required tool or one of the three `PUBLISH_VIDEO_*` vars is missing. Missing bucket credentials surface as a per-item upload error instead.

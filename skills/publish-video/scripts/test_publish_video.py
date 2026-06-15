@@ -40,6 +40,44 @@ class Helpers(unittest.TestCase):
         cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264", concurrent_fragments=1)
         self.assertNotIn("-N", cmd)
 
+    def test_build_ytdlp_cmd_js_runtime_default(self):
+        # YouTube's signature/n-challenge needs an enabled JS runtime (yt-dlp only
+        # enables deno by default); we opt in to node by default.
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264")
+        self.assertIn("--js-runtimes", cmd)
+        self.assertEqual(cmd[cmd.index("--js-runtimes") + 1], "node")
+        self.assertEqual(cmd[-1], "URL")  # flags stay before the "--" guard
+
+    def test_build_ytdlp_cmd_remote_components_default(self):
+        # The EJS challenge-solver script is fetched from yt-dlp's GitHub releases.
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264")
+        self.assertIn("--remote-components", cmd)
+        self.assertEqual(cmd[cmd.index("--remote-components") + 1], "ejs:github")
+
+    def test_build_ytdlp_cmd_js_runtime_omitted_when_empty(self):
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264", js_runtimes="")
+        self.assertNotIn("--js-runtimes", cmd)
+
+    def test_build_ytdlp_cmd_remote_components_omitted_when_empty(self):
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264", remote_components="")
+        self.assertNotIn("--remote-components", cmd)
+
+    def test_build_title_cmd_includes_js_runtime(self):
+        # YouTube title extraction (with cookies) does full format extraction, which now
+        # needs an enabled JS runtime — without it yt-dlp errors and the title is lost.
+        cmd = v.build_title_cmd("URL", "chrome")
+        self.assertIn("--print", cmd)
+        self.assertIn("--js-runtimes", cmd)
+        self.assertEqual(cmd[cmd.index("--js-runtimes") + 1], "node")
+        self.assertIn("--cookies-from-browser", cmd)
+        self.assertEqual(cmd[-1], "URL")  # url after the "--" guard
+
+    def test_build_title_cmd_omits_flags_when_empty(self):
+        cmd = v.build_title_cmd("URL", None, js_runtimes="", remote_components="")
+        self.assertNotIn("--js-runtimes", cmd)
+        self.assertNotIn("--remote-components", cmd)
+        self.assertNotIn("--cookies-from-browser", cmd)
+
     def test_build_register_url(self):
         self.assertEqual(
             v.build_register_url("https://h.fly.dev/", 7),
