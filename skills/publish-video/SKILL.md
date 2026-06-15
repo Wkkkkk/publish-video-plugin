@@ -21,6 +21,8 @@ Publish one or more videos to a public URL via S3-compatible object storage.
 
 The script fails with a clear stderr message + exit code 2 if a required tool or one of the three `PUBLISH_VIDEO_*` vars is missing. Missing bucket credentials surface as a per-item upload error instead.
 
+The config is read from the environment. The convenient way to set it is a `.env` file (see the repo's `.env.example`): `set -a; source /path/to/.env; set +a` before invoking, which exports everything for the tool.
+
 ## How to invoke
 ```bash
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish-video/scripts/publish_video.py <source> [more sources…] [options]

@@ -8,6 +8,14 @@ A Claude Code plugin: a skill that publishes a video (local file, direct URL, yt
 /plugin install publish-video
 ```
 
+## Configuration
+Copy the template and fill in your storage details (gitignored — keep secrets out of git):
+```bash
+cp .env.example .env       # then edit .env
+set -a; source .env; set +a
+```
+`set -a` exports every variable the `source` defines, so the tool (and the skill) pick them up. See `.env.example` for the full list.
+
 ## Prerequisites & usage
 See `skills/publish-video/SKILL.md` and `skills/publish-video/REFERENCE.md`.
 
