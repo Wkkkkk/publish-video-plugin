@@ -110,12 +110,12 @@ def required_tools(jobs, transcode: bool) -> set:
 
 
 def sanitize_filename(name: str) -> str:
-    # Keep Unicode word chars (CJK included), dot and dash; turn every other char
-    # into "_", then collapse runs and trim edges so CJK titles read cleanly
-    # instead of becoming long underscore runs.
-    # Note: do NOT basename() — titles may contain "/" (e.g. "系列（1/21）"), which a
-    # basename would silently truncate. Callers that pass a real path basename first.
-    safe = re.sub(r"[^\w.-]", "_", name, flags=re.UNICODE)
+    # ASCII only: turn every char outside [A-Za-z0-9._-] (CJK, spaces, punctuation)
+    # into "_", then collapse runs and trim edges. Keeping keys ASCII means the public
+    # URL needs no percent-encoding (no Chinese in the URL); the video-id in the key
+    # keeps it unique even when an all-CJK title reduces to the "video" fallback.
+    # Note: do NOT basename() — titles may contain "/", which a basename would truncate.
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", name)
     safe = re.sub(r"_+", "_", safe).strip("_")
     return safe or "video"
 
