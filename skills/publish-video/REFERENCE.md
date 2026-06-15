@@ -102,3 +102,13 @@ Loop mode (no `--once`) polls every `poll_interval_mins`.
 
 ### Scheduling
 Run `python3 .../watcher.py --once` from a local Claude routine (`/schedule`) or an OS cron/launchd timer. It must run where your cookies + `PUBLISH_VIDEO_*`/`MYTV_*` env resolve (i.e. locally).
+
+The agent logs to `~/.publish-video-watcher/watcher.log`. The wrapper
+(`run-watcher.example.sh` in this directory is a template) rotates that log via
+copytruncate when it exceeds 5 MB, keeping one previous generation (`watcher.log.1`).
+Each poll ends with a one-line summary: `run done: N published, M failed`
+(plus ` · K listing errors` when a platform's listing fails).
+
+Set `[notify] enabled = true` in `watcher.toml` for a macOS Notification Center
+alert after each poll. `trigger` is `activity` (published or failed > 0, or a
+listing error), `failure` (only on failure), or `always`.
