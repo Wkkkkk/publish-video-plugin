@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 
+import watcher as w
 import watcher_state as st
 import watcher_sources as src
 import watcher_actions as act
@@ -164,6 +165,42 @@ class Actions(unittest.TestCase):
         outcomes = act.run_actions(SAMPLE_RESULT, config, registry={}, log_fn=lambda m: None)
         self.assertFalse(outcomes[0]["ok"])
         self.assertEqual(outcomes[0]["error"], "unknown action")
+
+
+class Config(unittest.TestCase):
+    def test_parse_config_merges_defaults(self):
+        cfg = w.parse_config('poll_interval_mins = 30\n')
+        self.assertEqual(cfg["poll_interval_mins"], 30)
+        self.assertEqual(cfg["cookies_browser"], "chrome")  # default preserved
+        self.assertIn("youtube", cfg["platforms"])           # default platforms
+
+    def test_parse_config_overrides_platforms(self):
+        toml = (
+            '[platforms.youtube]\n'
+            'source = "https://www.youtube.com/playlist?list=PL1"\n'
+        )
+        cfg = w.parse_config(toml)
+        self.assertEqual(cfg["platforms"]["youtube"]["source"],
+                         "https://www.youtube.com/playlist?list=PL1")
+
+    def test_parse_config_actions_array(self):
+        toml = (
+            '[[actions]]\nname = "mytv"\nenabled = true\nchannel = 7\n'
+            '[[actions]]\nname = "summarize"\nenabled = false\n'
+        )
+        cfg = w.parse_config(toml)
+        self.assertEqual(cfg["actions"][0],
+                         {"name": "mytv", "enabled": True, "channel": 7})
+
+    def test_validate_rejects_unknown_platform(self):
+        cfg = w.parse_config('[platforms.vimeo]\nsource = "watch_later"\n')
+        with self.assertRaises(ValueError):
+            w.validate_config(cfg)
+
+    def test_validate_rejects_action_without_name(self):
+        cfg = w.parse_config('[[actions]]\nenabled = true\n')
+        with self.assertRaises(ValueError):
+            w.validate_config(cfg)
 
 
 if __name__ == "__main__":
