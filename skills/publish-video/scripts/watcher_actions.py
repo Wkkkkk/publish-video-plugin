@@ -5,6 +5,7 @@ ACTIONS entry + a config line."""
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 import publish_video  # reuse the engine's MyTV helpers, unchanged
@@ -33,15 +34,35 @@ def run_summarize(result, opts, **_) -> dict:
     return {"skipped": "summarize not implemented"}
 
 
-def run_notify(result, opts, **_) -> dict:
-    # Stub: notifications not implemented in v1.
-    return {"skipped": "notify not implemented"}
+def send_macos_notification(title, message, run_fn=subprocess.run) -> None:
+    esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'display notification "{esc(message)}" with title "{esc(title)}"'
+    run_fn(["osascript", "-e", script], capture_output=True, text=True)
+
+
+def notify_run(result, notify_cfg, message, send_fn=send_macos_notification) -> dict:
+    """Run-level notifier driven by the run summary. Returns {notified: bool, ...}."""
+    if not notify_cfg.get("enabled"):
+        return {"notified": False, "reason": "disabled"}
+    outcomes = result.get("outcomes", [])
+    published = sum(1 for o in outcomes if o.get("ok"))
+    failed = len(outcomes) - published
+    errors = len(result.get("listing_errors") or [])
+    trigger = notify_cfg.get("trigger", "activity")
+    should = (
+        trigger == "always"
+        or (trigger == "failure" and (failed or errors))
+        or (trigger == "activity" and (published or failed or errors))
+    )
+    if not should:
+        return {"notified": False, "reason": "trigger not met"}
+    send_fn(notify_cfg.get("title", "publish-video watcher"), message)
+    return {"notified": True}
 
 
 ACTIONS = {
     "mytv": run_mytv,
     "summarize": run_summarize,
-    "notify": run_notify,
 }
 
 
