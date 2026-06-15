@@ -252,6 +252,11 @@ class Config(unittest.TestCase):
     def test_default_max_items_is_10(self):
         self.assertEqual(w.parse_config('')["max_items"], 10)
 
+    def test_default_concurrency_and_fragments(self):
+        cfg = w.parse_config('')
+        self.assertEqual(cfg["concurrency"], 5)
+        self.assertEqual(cfg["concurrent_fragments"], 4)
+
     def test_validate_rejects_unknown_platform(self):
         cfg = w.parse_config('[platforms.vimeo]\nsource = "watch_later"\n')
         with self.assertRaises(ValueError):
@@ -288,6 +293,29 @@ class Publish(unittest.TestCase):
         cmd = w.build_publish_cmd("URL", "/p.py", transcode=True, cookies_browser="chrome")
         self.assertIn("--transcode", cmd)
 
+    def test_build_publish_cmd_concurrent_fragments(self):
+        cmd = w.build_publish_cmd("URL", "/p.py", transcode=False, cookies_browser="chrome",
+                                  concurrent_fragments=4)
+        self.assertIn("--concurrent-fragments", cmd)
+        self.assertIn("4", cmd)
+
+    def test_build_publish_cmd_no_fragments_when_one(self):
+        cmd = w.build_publish_cmd("URL", "/p.py", transcode=False, cookies_browser="chrome",
+                                  concurrent_fragments=1)
+        self.assertNotIn("--concurrent-fragments", cmd)
+
+    def test_run_publish_passes_fragments(self):
+        calls = {}
+
+        def fake_run(cmd, capture_output, text):
+            calls["cmd"] = cmd
+            return FakeProc(stdout=json.dumps(
+                {"results": [{"public_url": "u", "duration_secs": 1, "title": "t"}]}))
+
+        w.run_publish("URL", "/p.py", False, "chrome", concurrent_fragments=4, run_fn=fake_run)
+        self.assertIn("--concurrent-fragments", calls["cmd"])
+        self.assertIn("4", calls["cmd"])
+
     def test_run_publish_parses_envelope(self):
         envelope = {"ok": 1, "failed": 0,
                     "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5,
@@ -313,6 +341,20 @@ class Publish(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
 
+    def test_run_publish_forwards_engine_stderr(self):
+        import contextlib
+        import io
+        env = {"ok": 1, "failed": 0,
+               "results": [{"public_url": "u", "duration_secs": 1, "title": "t"}]}
+
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(stdout=json.dumps(env), stderr="ERROR: real yt-dlp reason\n")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
+        self.assertIn("ERROR: real yt-dlp reason", buf.getvalue())
+
     def test_first_result(self):
         self.assertEqual(w.first_result({"results": [{"a": 1}]}), {"a": 1})
         self.assertIsNone(w.first_result({"results": []}))
@@ -329,7 +371,7 @@ def _base_deps(overrides):
     """Fully-faked deps for tick/process_entry — no network, subprocess, or fs."""
     deps = {
         "list_entries": lambda platform, source, cookies, max_items=None: [],
-        "publish": lambda url, script, transcode, cookies: {
+        "publish": lambda url, script, transcode, cookies, concurrent_fragments=1: {
             "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]},
         "run_actions": lambda result, actions: [{"action": "mytv", "ok": True}],
         "load_state": lambda path: set(),
@@ -351,12 +393,31 @@ class Orchestrate(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(ran["r"]["public_url"], "https://b/x.mp4")
 
+    def test_process_entry_logs_published_url(self):
+        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
+        cfg = w.parse_config('')
+        msgs = []
+        w.process_entry(entry, cfg, "/p.py", _base_deps({}), log=msgs.append)
+        self.assertTrue(any("https://b/x.mp4" in m for m in msgs))
+
+    def test_process_entry_passes_fragments_to_publish(self):
+        entry = {"platform": "youtube", "id": "a", "url": "u", "title": "t"}
+        cfg = w.parse_config('')   # concurrent_fragments defaults to 4
+        got = {}
+
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
+            got["frag"] = concurrent_fragments
+            return {"results": [{"public_url": "x", "duration_secs": 1, "title": "t"}]}
+
+        w.process_entry(entry, cfg, "/p.py", _base_deps({"publish": publish}), log=lambda m: None)
+        self.assertEqual(got["frag"], 4)
+
     def test_process_entry_publish_error_skips_actions(self):
         entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
         cfg = w.parse_config('')
         ran = {"called": False}
         deps = _base_deps({
-            "publish": lambda *a: {"results": [{"error": "download failed"}]},
+            "publish": lambda *a, **k: {"results": [{"error": "download failed"}]},
             "run_actions": lambda *a: ran.update(called=True) or [],
         })
         out = w.process_entry(entry, cfg, "/p.py", deps, log=lambda m: None)
@@ -370,7 +431,7 @@ class Orchestrate(unittest.TestCase):
         ]
         saved = {"keys": None}
 
-        def publish(url, script, transcode, cookies):
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
             if url == "u2":
                 return {"results": [{"error": "boom"}]}
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]}
@@ -396,13 +457,57 @@ class Orchestrate(unittest.TestCase):
                 raise RuntimeError("yt listing down")
             return [{"platform": "bilibili", "id": "b1", "url": "u", "title": "t"}]
 
-        def publish(*a):
+        def publish(*a, **k):
             published["count"] += 1
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 1, "title": "T"}]}
 
         deps = _base_deps({"list_entries": list_entries, "publish": publish})
         w.tick(cfg, "/p.py", deps, log=lambda m: None)
         self.assertEqual(published["count"], 1)  # bilibili still processed despite youtube failing
+
+    def test_tick_processes_all_fresh_via_pool(self):
+        entries = [{"platform": "youtube", "id": f"v{i}", "url": f"u{i}", "title": "t"}
+                   for i in range(3)]
+        import threading as _t
+        saved = {"keys": set()}
+        save_lock = _t.Lock()
+
+        def save(path, keys):
+            with save_lock:
+                saved["keys"] = set(keys)
+
+        cfg = w.parse_config('')            # concurrency defaults to 5
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        deps = _base_deps({"list_entries": lambda *a, **k: entries, "save_state": save})
+        handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        self.assertEqual(len(handled), 3)
+        self.assertTrue(all(o["ok"] for o in handled))
+        self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
+
+    def test_tick_contains_worker_exception_and_others_continue(self):
+        entries = [
+            {"platform": "youtube", "id": "boom", "url": "boom_url", "title": "t"},
+            {"platform": "youtube", "id": "good", "url": "good_url", "title": "t"},
+        ]
+
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
+            if url == "boom_url":
+                raise RuntimeError("publish exploded")
+            return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]}
+
+        saved = {"keys": set()}
+        cfg = w.parse_config('')
+        cfg["platforms"] = {"youtube": {"source": "watch_later"}}
+        deps = _base_deps({
+            "list_entries": lambda *a, **k: entries,
+            "publish": publish,
+            "save_state": lambda path, keys: saved.update(keys=set(keys)),
+        })
+        handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
+        by_id = {o["entry"]["id"]: o for o in handled}
+        self.assertFalse(by_id["boom"]["ok"])           # failure contained, not raised
+        self.assertTrue(by_id["good"]["ok"])            # other worker still ran
+        self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
 
 
 class Cli(unittest.TestCase):
@@ -431,6 +536,10 @@ class Cli(unittest.TestCase):
     def test_parse_args_limit(self):
         self.assertIsNone(w.parse_args([]).limit)
         self.assertEqual(w.parse_args(["--limit", "3"]).limit, 3)
+
+    def test_parse_args_concurrency(self):
+        self.assertIsNone(w.parse_args([]).concurrency)
+        self.assertEqual(w.parse_args(["--concurrency", "2"]).concurrency, 2)
 
     def test_select_platforms_all_when_none(self):
         cfg = w.parse_config('')

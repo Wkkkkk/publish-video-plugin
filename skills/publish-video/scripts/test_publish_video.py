@@ -31,6 +31,15 @@ class Helpers(unittest.TestCase):
         cmd = v.build_ytdlp_cmd("URL", "/tmp/o.mp4", None, "vcodec:h264")
         self.assertNotIn("--cookies-from-browser", cmd)
 
+    def test_build_ytdlp_cmd_concurrent_fragments(self):
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264", concurrent_fragments=4)
+        self.assertIn("-N", cmd)
+        self.assertIn("4", cmd)
+
+    def test_build_ytdlp_cmd_no_fragments_when_one(self):
+        cmd = v.build_ytdlp_cmd("URL", "/o.mp4", None, "vcodec:h264", concurrent_fragments=1)
+        self.assertNotIn("-N", cmd)
+
     def test_build_register_url(self):
         self.assertEqual(
             v.build_register_url("https://h.fly.dev/", 7),

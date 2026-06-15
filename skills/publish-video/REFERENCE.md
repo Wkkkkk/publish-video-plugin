@@ -10,6 +10,7 @@
 | `--key-prefix PREFIX` | `video` | Object key prefix |
 | `--cookies-from-browser B` | `chrome` | Browser for yt-dlp cookies (URL sources) |
 | `--format-sort SORT` | `vcodec:h264,acodec:aac` | yt-dlp `-S` string |
+| `--concurrent-fragments N` | `1` | yt-dlp `-N`: parallel fragment downloads per video |
 | `--transcode` | off | Re-encode non-H.264/AAC inputs to H.264/AAC (else warn + upload as-is) |
 | `--sink {print,mytv}` | `print` | Output sink; `mytv` also registers a playlist item |
 | `--channel N` | — | MyTV channel id (required with `--sink mytv`) |
@@ -73,11 +74,14 @@ It relies on the same environment as the engine (`PUBLISH_VIDEO_*`, plus `MYTV_*
 | `--platform {youtube,bilibili}` | all | Poll only one platform |
 | `--dry-run` | off | List new items per platform as JSON; no publish |
 | `--limit N` | config `max_items` | Cap each source to its N latest items this run |
+| `--concurrency N` | config `concurrency` | How many videos to download/upload at once this run |
 
 Loop mode (no `--once`) polls every `poll_interval_mins`.
 
 ### Config
 - `max_items` — only the N latest items per source are listed each pass (default 10; `0` = no cap). Caps cost at the source via `yt-dlp --playlist-end`, including the per-item title fetch below.
+- `concurrency` — how many videos download/upload at once (default 5). A bounded thread pool; each video runs in its own engine subprocess.
+- `concurrent_fragments` — passed to yt-dlp as `-N` (default 4), parallelizing one video's fragment downloads. Speeds up a single large video.
 - `state_path` — local dedup record (leading `~` is expanded). Never your source.
 - `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
 - `actions` — ordered post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize`/`notify` are no-op stubs. Add an action by adding a function in `watcher_actions.py` and a block here.

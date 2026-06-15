@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import tomllib
 
 import watcher_actions
@@ -23,6 +25,8 @@ DEFAULT_CONFIG = {
     "poll_interval_mins": 60,
     "transcode": False,
     "max_items": 10,  # cap each source to its N latest items per pass (0 = no cap)
+    "concurrency": 5,  # how many videos to download/upload at once
+    "concurrent_fragments": 4,  # yt-dlp -N: parallel fragment downloads per video
     "cookies_browser": "chrome",
     "state_path": os.path.expanduser("~/.publish-video-watcher/state.json"),
     "platforms": {
@@ -58,16 +62,21 @@ def validate_config(cfg: dict) -> None:
     cfg["state_path"] = os.path.expanduser(cfg["state_path"])
 
 
-def build_publish_cmd(url, script_path, transcode, cookies_browser) -> list:
+def build_publish_cmd(url, script_path, transcode, cookies_browser, concurrent_fragments=1) -> list:
     cmd = ["python3", script_path, url, "--cookies-from-browser", cookies_browser]
     if transcode:
         cmd.append("--transcode")
+    if concurrent_fragments and concurrent_fragments > 1:
+        cmd += ["--concurrent-fragments", str(concurrent_fragments)]
     return cmd
 
 
-def run_publish(url, script_path, transcode, cookies_browser, run_fn=subprocess.run) -> dict:
-    cmd = build_publish_cmd(url, script_path, transcode, cookies_browser)
+def run_publish(url, script_path, transcode, cookies_browser, concurrent_fragments=1,
+                run_fn=subprocess.run) -> dict:
+    cmd = build_publish_cmd(url, script_path, transcode, cookies_browser, concurrent_fragments)
     proc = run_fn(cmd, capture_output=True, text=True)
+    if proc.stderr:  # surface the engine's own logs/errors (yt-dlp output, failures)
+        print(proc.stderr, file=sys.stderr, end="")
     # exit 0 = all ok, 1 = item failed (envelope still printed), 2 = config/usage error.
     if proc.returncode not in (0, 1):
         raise RuntimeError(f"publish failed (exit {proc.returncode}): {proc.stderr.strip()[:300]}")
@@ -93,20 +102,25 @@ def make_result(entry: dict, published: dict) -> dict:
 
 
 def process_entry(entry, cfg, script_path, deps, log) -> dict:
-    envelope = deps["publish"](entry["url"], script_path, cfg["transcode"], cfg["cookies_browser"])
+    envelope = deps["publish"](entry["url"], script_path, cfg["transcode"], cfg["cookies_browser"],
+                               concurrent_fragments=cfg["concurrent_fragments"])
     published = first_result(envelope)
     if not published or "error" in published:
         msg = published.get("error", "no result") if published else "no result"
         log(f"publish failed for {entry['url']}: {msg}")
         return {"entry": entry, "ok": False, "error": msg}
     result = make_result(entry, published)
+    log(f"published {result['platform']}:{result['source_id']} "
+        f"\"{result['title']}\" -> {result['public_url']}")
     outcomes = deps["run_actions"](result, cfg["actions"])
     return {"entry": entry, "ok": True, "result": result, "actions": outcomes}
 
 
 def tick(cfg, script_path, deps, log) -> list:
     seen = deps["load_state"](cfg["state_path"])
-    handled = []
+    # Listing phase (serial, cheap): snapshot all fresh entries against `seen` before
+    # the pool starts, so the dedup decision is race-free.
+    fresh_all = []
     for platform, pconf in cfg["platforms"].items():
         try:
             entries = deps["list_entries"](platform, pconf["source"], cfg["cookies_browser"],
@@ -116,13 +130,25 @@ def tick(cfg, script_path, deps, log) -> list:
             continue
         fresh = deps["new_entries"](entries, seen)
         log(f"{platform}: {len(entries)} listed, {len(fresh)} new")
-        for entry in fresh:
+        fresh_all.extend(fresh)
+
+    lock = threading.Lock()
+
+    def work(entry):
+        try:
             outcome = process_entry(entry, cfg, script_path, deps, log)
-            handled.append(outcome)
-            if outcome["ok"]:
+        except Exception as e:  # contain per item; other workers keep going
+            log(f"error processing {entry.get('url')}: {e}")
+            return {"entry": entry, "ok": False, "error": str(e)}
+        if outcome["ok"]:
+            with lock:  # serialize state mutation + write across workers (crash-safe)
                 seen.add(deps["entry_key"](entry))
-                deps["save_state"](cfg["state_path"], seen)  # persist after each success (crash-safe)
-    return handled
+                deps["save_state"](cfg["state_path"], seen)
+        return outcome
+
+    workers = max(1, cfg["concurrency"])
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(work, fresh_all))
 
 
 ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "publish_video.py")
@@ -160,6 +186,7 @@ def parse_args(argv=None):
     p.add_argument("--platform", choices=KNOWN_PLATFORMS, help="only poll this platform")
     p.add_argument("--dry-run", action="store_true", help="list new items per platform; do not publish")
     p.add_argument("--limit", type=int, help="cap each source to its N latest items (overrides config max_items)")
+    p.add_argument("--concurrency", type=int, help="how many videos to publish at once (overrides config)")
     return p.parse_args(argv)
 
 
@@ -175,6 +202,8 @@ def main():
         sys.exit(2)
     if args.limit is not None:
         cfg["max_items"] = args.limit
+    if args.concurrency is not None:
+        cfg["concurrency"] = args.concurrency
     if shutil.which("yt-dlp") is None:
         print("error: yt-dlp not found on PATH (needed to list sources)", file=sys.stderr)
         sys.exit(2)
