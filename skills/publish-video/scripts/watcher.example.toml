@@ -1,0 +1,27 @@
+# Copy to watcher.toml and edit. Secrets do NOT go here — S3/MyTV creds come from
+# the environment (.env), cookies come from your browser (cookies_browser below).
+
+poll_interval_mins = 60        # loop mode only; ignored with --once
+transcode = false              # re-encode non-H.264/AAC inputs before upload
+cookies_browser = "chrome"     # browser yt-dlp reads cookies from (Watch Later is private)
+state_path = "~/.publish-video-watcher/state.json"  # dedup record; never your source
+
+# NOTE: naming any [platforms.*] section replaces the whole platforms table, so list
+# every platform you want polled. Omit one to skip it.
+[platforms.youtube]
+source = "watch_later"         # or a full playlist/folder URL, e.g.
+                               # "https://www.youtube.com/playlist?list=PLxxxx"
+
+[platforms.bilibili]
+source = "watch_later"         # or a full favorites-folder URL
+
+# Post-publish actions run in order, for every newly-published video.
+# Add an action = add a function in watcher_actions.py + a block here.
+[[actions]]
+name = "mytv"
+enabled = false                # set true + a real channel to auto-register into MyTV
+channel = 7
+
+[[actions]]
+name = "summarize"             # stub in v1 (no-op)
+enabled = false

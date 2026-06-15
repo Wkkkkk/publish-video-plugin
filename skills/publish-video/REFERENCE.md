@@ -54,3 +54,36 @@
 - `0` — all items succeeded
 - `1` — at least one item failed (others still processed)
 - `2` — config/usage error (missing env/tool, unreadable `--from-file`, bad arguments)
+
+## Watch Later watcher (`watcher.py`)
+
+A standalone poller that watches a saved-video source on YouTube + Bilibili and publishes new items via `publish_video.py`. Source listing uses `yt-dlp --flat-playlist` (list-only); the source itself is never modified — dedup is tracked in a local state file.
+
+### Setup
+```bash
+cp skills/publish-video/scripts/watcher.example.toml watcher.toml   # then edit
+```
+It relies on the same environment as the engine (`PUBLISH_VIDEO_*`, plus `MYTV_*` for the `mytv` action) and on your browser cookies (Watch Later is private — set `cookies_browser`).
+
+### CLI
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--config FILE` | `watcher.toml` | TOML config path |
+| `--once` | off | Run a single pass, then exit (use this for cron/manual runs) |
+| `--platform {youtube,bilibili}` | all | Poll only one platform |
+| `--dry-run` | off | List new items per platform as JSON; no publish |
+
+Loop mode (no `--once`) polls every `poll_interval_mins`.
+
+### Config
+- `state_path` — local dedup record (leading `~` is expanded). Never your source.
+- `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
+- `actions` — ordered post-publish steps. Each is enabled/disabled and carries its own options. `mytv` is wired (needs `channel` + `MYTV_*` env); `summarize`/`notify` are no-op stubs. Add an action by adding a function in `watcher_actions.py` and a block here.
+
+### Behavior & limitations (v1)
+- Read-only source; failed publishes are not recorded and retry next pass.
+- A listing failure on one platform does not stop the others.
+- `summarize`/`notify` are stubs; a real `summarize` needs the local file, which the engine deletes after upload.
+
+### Scheduling
+Run `python3 .../watcher.py --once` from a local Claude routine (`/schedule`) or an OS cron/launchd timer. It must run where your cookies + `PUBLISH_VIDEO_*`/`MYTV_*` env resolve (i.e. locally).

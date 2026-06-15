@@ -59,3 +59,14 @@ python3 "$PV" ./a.mp4 --dry-run
 ```
 
 See `REFERENCE.md` for the full flag/env table and JSON schema.
+
+## Auto-publish from a Watch Later / saved folder
+
+`scripts/watcher.py` polls your YouTube + Bilibili Watch Later (or a saved playlist) and publishes new items automatically. See `REFERENCE.md` ("Watch Later watcher") for config and flags.
+
+```bash
+# one-off / manual (good for cron or a scheduled routine)
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish-video/scripts/watcher.py --once --config ~/watcher.toml
+# preview what would be published, no upload
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/publish-video/scripts/watcher.py --dry-run --config ~/watcher.toml
+```
