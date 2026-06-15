@@ -484,18 +484,30 @@ class Orchestrate(unittest.TestCase):
         self.assertTrue(all(o["ok"] for o in handled))
         self.assertEqual(saved["keys"], {"youtube:v0", "youtube:v1", "youtube:v2"})
 
-    def test_tick_contains_worker_exception(self):
-        entries = [{"platform": "youtube", "id": "boom", "url": "u", "title": "t"}]
+    def test_tick_contains_worker_exception_and_others_continue(self):
+        entries = [
+            {"platform": "youtube", "id": "boom", "url": "boom_url", "title": "t"},
+            {"platform": "youtube", "id": "good", "url": "good_url", "title": "t"},
+        ]
 
-        def publish(*a, **k):
-            raise RuntimeError("publish exploded")
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
+            if url == "boom_url":
+                raise RuntimeError("publish exploded")
+            return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]}
 
+        saved = {"keys": set()}
         cfg = w.parse_config('')
         cfg["platforms"] = {"youtube": {"source": "watch_later"}}
-        deps = _base_deps({"list_entries": lambda *a, **k: entries, "publish": publish})
+        deps = _base_deps({
+            "list_entries": lambda *a, **k: entries,
+            "publish": publish,
+            "save_state": lambda path, keys: saved.update(keys=set(keys)),
+        })
         handled = w.tick(cfg, "/p.py", deps, log=lambda m: None)
-        self.assertEqual(len(handled), 1)
-        self.assertFalse(handled[0]["ok"])   # contained, not raised
+        by_id = {o["entry"]["id"]: o for o in handled}
+        self.assertFalse(by_id["boom"]["ok"])           # failure contained, not raised
+        self.assertTrue(by_id["good"]["ok"])            # other worker still ran
+        self.assertEqual(saved["keys"], {"youtube:good"})  # only the success recorded
 
 
 class Cli(unittest.TestCase):
