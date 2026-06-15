@@ -65,6 +65,8 @@ ACTIONS = {
     "summarize": run_summarize,
 }
 
+POST_RUN_ACTIONS = {}
+
 
 def enabled_actions(actions_config) -> list:
     """actions_config: ordered list of dicts like {'name': 'mytv', 'enabled': True, 'channel': 7}.
@@ -75,6 +77,26 @@ def enabled_actions(actions_config) -> list:
             opts = {k: val for k, val in a.items() if k not in ("name", "enabled")}
             out.append((a["name"], opts))
     return out
+
+
+def run_post_run(run_context, post_run_config, registry=None, log=None) -> list:
+    """Run-level actions. Each is fn(run_context, opts, log) -> dict; failures isolated."""
+    registry = POST_RUN_ACTIONS if registry is None else registry
+    log = log or (lambda m: print(m, file=sys.stderr))
+    outcomes = []
+    for name, opts in enabled_actions(post_run_config):
+        fn = registry.get(name)
+        if fn is None:
+            outcomes.append({"action": name, "ok": False, "error": "unknown action"})
+            log(f"post-run {name}: unknown, skipped")
+            continue
+        try:
+            output = fn(run_context, opts, log=log)
+            outcomes.append({"action": name, "ok": True, "output": output})
+        except Exception as e:
+            outcomes.append({"action": name, "ok": False, "error": str(e)})
+            log(f"post-run {name} failed: {e}")
+    return outcomes
 
 
 def run_actions(result, actions_config, registry=ACTIONS, log_fn=None) -> list:

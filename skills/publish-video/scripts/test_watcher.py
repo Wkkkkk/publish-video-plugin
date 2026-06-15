@@ -293,6 +293,29 @@ class Actions(unittest.TestCase):
         self.assertFalse(outcomes[0]["ok"])
         self.assertEqual(outcomes[0]["error"], "unknown action")
 
+    def test_run_post_run_dispatches_enabled(self):
+        seen = []
+        registry = {"a": lambda ctx, opts, log=None: seen.append(("a", opts)) or {"did": "a"}}
+        cfg = [{"name": "a", "enabled": True, "x": 1}, {"name": "a", "enabled": False}]
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               cfg, registry=registry, log=lambda m: None)
+        self.assertEqual(seen, [("a", {"x": 1})])
+        self.assertEqual(out[0], {"action": "a", "ok": True, "output": {"did": "a"}})
+
+    def test_run_post_run_isolates_failure(self):
+        def boom(ctx, opts, log=None): raise RuntimeError("kaboom")
+        registry = {"boom": boom, "ok": lambda ctx, opts, log=None: {"fine": True}}
+        cfg = [{"name": "boom", "enabled": True}, {"name": "ok", "enabled": True}]
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               cfg, registry=registry, log=lambda m: None)
+        self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "kaboom")
+        self.assertTrue(out[1]["ok"])
+
+    def test_run_post_run_unknown_action(self):
+        out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
+                               [{"name": "nope", "enabled": True}], registry={}, log=lambda m: None)
+        self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "unknown action")
+
 
 class Config(unittest.TestCase):
     def test_parse_config_merges_defaults(self):
