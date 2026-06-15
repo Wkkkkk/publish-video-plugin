@@ -60,15 +60,18 @@ def validate_config(cfg: dict) -> None:
     cfg["state_path"] = os.path.expanduser(cfg["state_path"])
 
 
-def build_publish_cmd(url, script_path, transcode, cookies_browser) -> list:
+def build_publish_cmd(url, script_path, transcode, cookies_browser, concurrent_fragments=1) -> list:
     cmd = ["python3", script_path, url, "--cookies-from-browser", cookies_browser]
     if transcode:
         cmd.append("--transcode")
+    if concurrent_fragments and concurrent_fragments > 1:
+        cmd += ["--concurrent-fragments", str(concurrent_fragments)]
     return cmd
 
 
-def run_publish(url, script_path, transcode, cookies_browser, run_fn=subprocess.run) -> dict:
-    cmd = build_publish_cmd(url, script_path, transcode, cookies_browser)
+def run_publish(url, script_path, transcode, cookies_browser, concurrent_fragments=1,
+                run_fn=subprocess.run) -> dict:
+    cmd = build_publish_cmd(url, script_path, transcode, cookies_browser, concurrent_fragments)
     proc = run_fn(cmd, capture_output=True, text=True)
     if proc.stderr:  # surface the engine's own logs/errors (yt-dlp output, failures)
         print(proc.stderr, file=sys.stderr, end="")
@@ -97,7 +100,8 @@ def make_result(entry: dict, published: dict) -> dict:
 
 
 def process_entry(entry, cfg, script_path, deps, log) -> dict:
-    envelope = deps["publish"](entry["url"], script_path, cfg["transcode"], cfg["cookies_browser"])
+    envelope = deps["publish"](entry["url"], script_path, cfg["transcode"], cfg["cookies_browser"],
+                               concurrent_fragments=cfg["concurrent_fragments"])
     published = first_result(envelope)
     if not published or "error" in published:
         msg = published.get("error", "no result") if published else "no result"

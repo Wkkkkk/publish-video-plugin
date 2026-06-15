@@ -293,6 +293,29 @@ class Publish(unittest.TestCase):
         cmd = w.build_publish_cmd("URL", "/p.py", transcode=True, cookies_browser="chrome")
         self.assertIn("--transcode", cmd)
 
+    def test_build_publish_cmd_concurrent_fragments(self):
+        cmd = w.build_publish_cmd("URL", "/p.py", transcode=False, cookies_browser="chrome",
+                                  concurrent_fragments=4)
+        self.assertIn("--concurrent-fragments", cmd)
+        self.assertIn("4", cmd)
+
+    def test_build_publish_cmd_no_fragments_when_one(self):
+        cmd = w.build_publish_cmd("URL", "/p.py", transcode=False, cookies_browser="chrome",
+                                  concurrent_fragments=1)
+        self.assertNotIn("--concurrent-fragments", cmd)
+
+    def test_run_publish_passes_fragments(self):
+        calls = {}
+
+        def fake_run(cmd, capture_output, text):
+            calls["cmd"] = cmd
+            return FakeProc(stdout=json.dumps(
+                {"results": [{"public_url": "u", "duration_secs": 1, "title": "t"}]}))
+
+        w.run_publish("URL", "/p.py", False, "chrome", concurrent_fragments=4, run_fn=fake_run)
+        self.assertIn("--concurrent-fragments", calls["cmd"])
+        self.assertIn("4", calls["cmd"])
+
     def test_run_publish_parses_envelope(self):
         envelope = {"ok": 1, "failed": 0,
                     "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5,
@@ -348,7 +371,7 @@ def _base_deps(overrides):
     """Fully-faked deps for tick/process_entry — no network, subprocess, or fs."""
     deps = {
         "list_entries": lambda platform, source, cookies, max_items=None: [],
-        "publish": lambda url, script, transcode, cookies: {
+        "publish": lambda url, script, transcode, cookies, concurrent_fragments=1: {
             "results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]},
         "run_actions": lambda result, actions: [{"action": "mytv", "ok": True}],
         "load_state": lambda path: set(),
@@ -377,12 +400,24 @@ class Orchestrate(unittest.TestCase):
         w.process_entry(entry, cfg, "/p.py", _base_deps({}), log=msgs.append)
         self.assertTrue(any("https://b/x.mp4" in m for m in msgs))
 
+    def test_process_entry_passes_fragments_to_publish(self):
+        entry = {"platform": "youtube", "id": "a", "url": "u", "title": "t"}
+        cfg = w.parse_config('')   # concurrent_fragments defaults to 4
+        got = {}
+
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
+            got["frag"] = concurrent_fragments
+            return {"results": [{"public_url": "x", "duration_secs": 1, "title": "t"}]}
+
+        w.process_entry(entry, cfg, "/p.py", _base_deps({"publish": publish}), log=lambda m: None)
+        self.assertEqual(got["frag"], 4)
+
     def test_process_entry_publish_error_skips_actions(self):
         entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "t"}
         cfg = w.parse_config('')
         ran = {"called": False}
         deps = _base_deps({
-            "publish": lambda *a: {"results": [{"error": "download failed"}]},
+            "publish": lambda *a, **k: {"results": [{"error": "download failed"}]},
             "run_actions": lambda *a: ran.update(called=True) or [],
         })
         out = w.process_entry(entry, cfg, "/p.py", deps, log=lambda m: None)
@@ -396,7 +431,7 @@ class Orchestrate(unittest.TestCase):
         ]
         saved = {"keys": None}
 
-        def publish(url, script, transcode, cookies):
+        def publish(url, script, transcode, cookies, concurrent_fragments=1):
             if url == "u2":
                 return {"results": [{"error": "boom"}]}
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 5, "title": "T"}]}
@@ -422,7 +457,7 @@ class Orchestrate(unittest.TestCase):
                 raise RuntimeError("yt listing down")
             return [{"platform": "bilibili", "id": "b1", "url": "u", "title": "t"}]
 
-        def publish(*a):
+        def publish(*a, **k):
             published["count"] += 1
             return {"results": [{"public_url": "https://b/x.mp4", "duration_secs": 1, "title": "T"}]}
 
