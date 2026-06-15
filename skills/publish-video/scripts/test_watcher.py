@@ -313,6 +313,20 @@ class Publish(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
 
+    def test_run_publish_forwards_engine_stderr(self):
+        import contextlib
+        import io
+        env = {"ok": 1, "failed": 0,
+               "results": [{"public_url": "u", "duration_secs": 1, "title": "t"}]}
+
+        def fake_run(cmd, capture_output, text):
+            return FakeProc(stdout=json.dumps(env), stderr="ERROR: real yt-dlp reason\n")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            w.run_publish("URL", "/p.py", False, "chrome", run_fn=fake_run)
+        self.assertIn("ERROR: real yt-dlp reason", buf.getvalue())
+
     def test_first_result(self):
         self.assertEqual(w.first_result({"results": [{"a": 1}]}), {"a": 1})
         self.assertIsNone(w.first_result({"results": []}))
