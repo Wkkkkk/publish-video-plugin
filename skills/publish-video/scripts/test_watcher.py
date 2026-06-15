@@ -248,6 +248,26 @@ class Actions(unittest.TestCase):
         self.assertEqual(registered, ["B1"])
         self.assertEqual(out["registered"], 1)
 
+    def test_mytv_action_isolates_per_platform_ensure_failure(self):
+        registered = []
+        def ensure(base, pw, name, cat, ctype, existing):
+            if name == "MyYoutube":
+                raise RuntimeError("ensure boom")
+            return 2
+        out = act.mytv_action(
+            self._mytv_ctx(),
+            {"enabled": True, "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
+            env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+            list_channels=lambda base, pw: [],
+            ensure_channel=ensure,
+            register_item=lambda base, cid, pw, payload: registered.append((cid, payload["title"])) or {"id": cid},
+            build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+        )
+        # youtube's ensure failed -> its item skipped; bilibili still ensured + registered
+        self.assertEqual(registered, [(2, "B1")])
+        self.assertEqual(out["registered"], 1)
+        self.assertEqual(out["channels"], {"bilibili": 2})
+
     def test_stubs_return_skipped(self):
         self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))
 

@@ -405,24 +405,7 @@ def derive_title(source, stype, override, cookies, dry_run) -> str:
 
 
 def register_item(base: str, channel: int, password: str, payload: dict) -> dict:
-    url = build_register_url(base, channel)
-    token = base64.b64encode(f"user:{password}".encode()).decode()
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Basic {token}",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        raise PublishError(f"MyTV API returned {e.code}: {e.read().decode()[:300]}")
-    except urllib.error.URLError as e:
-        raise PublishError(f"could not reach {url}: {e.reason}")
+    return mytv_request("POST", build_register_url(base, channel), password, body=payload)
 
 
 def mytv_request(method, url, password, body=None, urlopen=urllib.request.urlopen) -> dict:
