@@ -23,6 +23,8 @@ DEFAULT_CONFIG = {
     "poll_interval_mins": 60,
     "transcode": False,
     "max_items": 10,  # cap each source to its N latest items per pass (0 = no cap)
+    "concurrency": 5,  # how many videos to download/upload at once
+    "concurrent_fragments": 4,  # yt-dlp -N: parallel fragment downloads per video
     "cookies_browser": "chrome",
     "state_path": os.path.expanduser("~/.publish-video-watcher/state.json"),
     "platforms": {
@@ -164,6 +166,7 @@ def parse_args(argv=None):
     p.add_argument("--platform", choices=KNOWN_PLATFORMS, help="only poll this platform")
     p.add_argument("--dry-run", action="store_true", help="list new items per platform; do not publish")
     p.add_argument("--limit", type=int, help="cap each source to its N latest items (overrides config max_items)")
+    p.add_argument("--concurrency", type=int, help="how many videos to publish at once (overrides config)")
     return p.parse_args(argv)
 
 
@@ -179,6 +182,8 @@ def main():
         sys.exit(2)
     if args.limit is not None:
         cfg["max_items"] = args.limit
+    if args.concurrency is not None:
+        cfg["concurrency"] = args.concurrency
     if shutil.which("yt-dlp") is None:
         print("error: yt-dlp not found on PATH (needed to list sources)", file=sys.stderr)
         sys.exit(2)

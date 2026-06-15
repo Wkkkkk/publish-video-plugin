@@ -252,6 +252,11 @@ class Config(unittest.TestCase):
     def test_default_max_items_is_10(self):
         self.assertEqual(w.parse_config('')["max_items"], 10)
 
+    def test_default_concurrency_and_fragments(self):
+        cfg = w.parse_config('')
+        self.assertEqual(cfg["concurrency"], 5)
+        self.assertEqual(cfg["concurrent_fragments"], 4)
+
     def test_validate_rejects_unknown_platform(self):
         cfg = w.parse_config('[platforms.vimeo]\nsource = "watch_later"\n')
         with self.assertRaises(ValueError):
@@ -452,6 +457,10 @@ class Cli(unittest.TestCase):
     def test_parse_args_limit(self):
         self.assertIsNone(w.parse_args([]).limit)
         self.assertEqual(w.parse_args(["--limit", "3"]).limit, 3)
+
+    def test_parse_args_concurrency(self):
+        self.assertIsNone(w.parse_args([]).concurrency)
+        self.assertEqual(w.parse_args(["--concurrency", "2"]).concurrency, 2)
 
     def test_select_platforms_all_when_none(self):
         cfg = w.parse_config('')
