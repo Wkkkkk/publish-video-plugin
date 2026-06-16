@@ -116,19 +116,12 @@ notify = true                  # one summary notification per run
   the watcher gets a minimal environment, so an **absolute path to the venv
   console script** is recommended.
 - The `video-summarizer` CLI reads `GEMINI_API_KEY` from its **environment**; it
-  does not auto-load its own `.env`. The watcher therefore must export
-  `GEMINI_API_KEY` before invoking the action. The key lives in
-  `/Users/kunwu/Workspace/playground/video-summarizer/.env`. The launchd wrapper
-  (`run-watcher.example.sh`) already `source`s the publish-video `.env` under
-  `set -a`; add the key there or `source` the summarizer's `.env` the same way,
-  e.g.:
-
-  ```bash
-  set -a
-  source "$REPO/.env"
-  source "/Users/kunwu/Workspace/playground/video-summarizer/.env"  # GEMINI_API_KEY
-  set +a
-  ```
+  does not auto-load its own `.env`. We therefore **fold `GEMINI_API_KEY` into
+  the publish-video `.env`** (gitignored) rather than sourcing a second file.
+  The launchd wrapper (`run-watcher.example.sh`) already `source`s `$REPO/.env`
+  under `set -a`, so the key is exported to the watcher — and thus inherited by
+  the summarize subprocess — with no wrapper change. `.env.example` documents the
+  key (commented) so the dependency is discoverable.
 - The action itself does not read or require `GEMINI_API_KEY`; it only inherits
   and forwards `env` to the subprocess. A missing key surfaces as a per-item
   failure (CLI exit 2), logged and skipped — the watcher run still completes.
