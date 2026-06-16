@@ -29,7 +29,7 @@ Commit trailer (exact) for every commit: `Co-Authored-By: Claude Opus 4.8 (1M co
 
 The API (confirmed against the MyTV server): `GET /api/admin/channels` → `[{id,name,type,...}]`; `POST /api/admin/channels` with `{name, category, type, sort_order}` → 201 `{id,...}`. Both use HTTP basic auth `user:<password>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the `Helpers` class in `test_publish_video.py`:
 
@@ -88,12 +88,12 @@ Add to the `Helpers` class in `test_publish_video.py`:
         self.assertEqual(created, [("MyBilibili", "saved", "vod_on_demand")])
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python3 -m unittest test_publish_video -v 2>&1 | tail -20`
 Expected: FAIL — `module 'publish_video' has no attribute 'mytv_request'` / `list_channels` / `create_channel` / `ensure_channel`.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
 
 In `publish_video.py`, immediately AFTER `register_item` (which ends ~line 425), add:
 
@@ -136,12 +136,12 @@ def ensure_channel(base: str, password: str, name: str, category: str, channel_t
 
 Note: `mytv_request`'s default `api` binding — `list_channels`/`create_channel` reference `mytv_request` as a default arg, so it must be defined first (it is, above them).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m unittest test_publish_video -v 2>&1 | tail -5`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/publish-video/scripts/publish_video.py skills/publish-video/scripts/test_publish_video.py
@@ -158,7 +158,7 @@ git commit -m "$(printf 'feat: MyTV channel helpers (list/create/ensure_channel)
 
 This adds the generic registry runner. The two concrete actions (notify, mytv) come in Tasks 3–4; this task tests `run_post_run` with a fake registry.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to the `Actions` class in `test_watcher.py`:
 
@@ -187,12 +187,12 @@ Add to the `Actions` class in `test_watcher.py`:
         self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "unknown action")
 ```
 
-- [ ] **Step 2: Run to verify FAIL**
+- [x] **Step 2: Run to verify FAIL**
 
 Run: `python3 -m unittest test_watcher.Actions -v 2>&1 | tail -10`
 Expected: FAIL — `module 'watcher_actions' has no attribute 'run_post_run'`.
 
-- [ ] **Step 3: Implement `run_post_run`**
+- [x] **Step 3: Implement `run_post_run`**
 
 In `watcher_actions.py`, add (after `run_actions`, before or after the `ACTIONS` block is fine — but `POST_RUN_ACTIONS` is defined in Tasks 3–4, so give `run_post_run` a default `registry` param that Tasks 3–4 will point at `POST_RUN_ACTIONS`). For this task, default the registry to an empty dict placeholder that Task 4 replaces:
 
@@ -219,12 +219,12 @@ def run_post_run(run_context, post_run_config, registry=None, log=None) -> list:
 
 Since `POST_RUN_ACTIONS` is referenced as a default fallback but not yet defined, add a temporary module-level `POST_RUN_ACTIONS = {}` near the `ACTIONS` definition for now (Tasks 3–4 populate it). The tests pass an explicit `registry`, so they don't depend on it.
 
-- [ ] **Step 4: Run to verify PASS**
+- [x] **Step 4: Run to verify PASS**
 
 Run: `python3 -m unittest test_watcher -v 2>&1 | tail -5`
 Expected: all PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/publish-video/scripts/watcher_actions.py skills/publish-video/scripts/test_watcher.py
@@ -241,7 +241,7 @@ git commit -m "$(printf 'feat: run_post_run() run-level action registry runner\n
 
 `notify_action(run_context, opts, ...)` reads counts from `run_context` and sends `run_context["summary"]` minus the `run done: ` prefix.
 
-- [ ] **Step 1: Migrate the notify tests**
+- [x] **Step 1: Migrate the notify tests**
 
 In `test_watcher.py`, the existing tests `test_notify_run_disabled`, `test_notify_run_activity_fires_on_publish`, `test_notify_run_activity_silent_on_idle`, `test_notify_run_failure_trigger_only_on_failure`, `test_notify_run_always_fires_on_idle` call `act.notify_run(result, notify_cfg, message, send_fn=...)`. Replace ALL FIVE with these `notify_action` versions (which pass `run_context` including `summary`):
 
@@ -290,12 +290,12 @@ In `test_watcher.py`, the existing tests `test_notify_run_disabled`, `test_notif
 
 (Leave the `test_send_macos_notification_*` tests unchanged — `send_macos_notification` is not changing.)
 
-- [ ] **Step 2: Run to verify FAIL**
+- [x] **Step 2: Run to verify FAIL**
 
 Run: `python3 -m unittest test_watcher.Actions -v 2>&1 | tail -10`
 Expected: FAIL — `module 'watcher_actions' has no attribute 'notify_action'`.
 
-- [ ] **Step 3: Replace `notify_run` with `notify_action`**
+- [x] **Step 3: Replace `notify_run` with `notify_action`**
 
 In `watcher_actions.py`, replace the entire `notify_run` function with:
 
@@ -321,12 +321,12 @@ def notify_action(run_context, opts, log=None, send_fn=send_macos_notification) 
     return {"notified": True}
 ```
 
-- [ ] **Step 4: Run to verify PASS**
+- [x] **Step 4: Run to verify PASS**
 
 Run: `python3 -m unittest test_watcher -v 2>&1 | tail -5`
 Expected: PASS for the migrated notify tests. (`run_post_run`/`build_deps` integration still uses old wiring until Task 5; that's fine — `POST_RUN_ACTIONS` is populated in Task 4.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/publish-video/scripts/watcher_actions.py skills/publish-video/scripts/test_watcher.py
@@ -341,7 +341,7 @@ git commit -m "$(printf 'feat: notify_action (run-level, reads run_context)\n\nC
 - Modify: `skills/publish-video/scripts/watcher_actions.py` (remove `run_mytv`; add `default_channel_name`, `mytv_action`; set `POST_RUN_ACTIONS`; drop `mytv` from per-video `ACTIONS`)
 - Test: `skills/publish-video/scripts/test_watcher.py` (`Actions` class — remove `run_mytv` tests, add `mytv_action` tests)
 
-- [ ] **Step 1: Migrate tests — remove `run_mytv` tests, add `mytv_action` tests**
+- [x] **Step 1: Migrate tests — remove `run_mytv` tests, add `mytv_action` tests**
 
 In `test_watcher.py`, DELETE `test_run_mytv_uses_engine_helpers` and `test_run_mytv_errors_without_env` (the per-video `run_mytv` is removed). Keep `test_stubs_return_skipped`, `test_run_actions_isolates_failures`, `test_run_actions_unknown_action`. Add:
 
@@ -419,12 +419,12 @@ In `test_watcher.py`, DELETE `test_run_mytv_uses_engine_helpers` and `test_run_m
         self.assertEqual(out["registered"], 1)
 ```
 
-- [ ] **Step 2: Run to verify FAIL**
+- [x] **Step 2: Run to verify FAIL**
 
 Run: `python3 -m unittest test_watcher.Actions -v 2>&1 | tail -15`
 Expected: FAIL — `module 'watcher_actions' has no attribute 'default_channel_name'`/`mytv_action`.
 
-- [ ] **Step 3: Implement in `watcher_actions.py`**
+- [x] **Step 3: Implement in `watcher_actions.py`**
 
 Remove the `run_mytv` function entirely. Add (and import nothing new beyond existing `os`, `publish_video`):
 
@@ -491,12 +491,12 @@ POST_RUN_ACTIONS = {
 
 (`POST_RUN_ACTIONS` must be defined after `notify_action` and `mytv_action`. Place both registry dicts after those function definitions.)
 
-- [ ] **Step 4: Run to verify PASS**
+- [x] **Step 4: Run to verify PASS**
 
 Run: `python3 -m unittest test_publish_video test_watcher -v 2>&1 | tail -5`
 Expected: all PASS. Confirm no leftover refs: `grep -n "run_mytv" skills/publish-video/scripts/watcher_actions.py test_watcher.py` returns nothing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skills/publish-video/scripts/watcher_actions.py skills/publish-video/scripts/test_watcher.py
@@ -512,7 +512,7 @@ git commit -m "$(printf 'feat: mytv_action (per-platform auto-create + register)
 - Modify: `skills/publish-video/scripts/watcher.toml`, `watcher.example.toml`
 - Test: `skills/publish-video/scripts/test_watcher.py` (`Config`, `Orchestrate`, `Cli`)
 
-- [ ] **Step 1: Migrate/add the failing tests**
+- [x] **Step 1: Migrate/add the failing tests**
 
 (a) In `Config`, REPLACE `test_default_config_has_notify_block` with:
 
@@ -567,12 +567,12 @@ git commit -m "$(printf 'feat: mytv_action (per-platform auto-create + register)
                     "save_state", "new_entries", "entry_key", "run_post_run"):
 ```
 
-- [ ] **Step 2: Run to verify FAIL**
+- [x] **Step 2: Run to verify FAIL**
 
 Run: `python3 -m unittest test_watcher -v 2>&1 | tail -15`
 Expected: `test_default_config_has_post_run` FAILS (`KeyError: 'post_run'`); the two run_once tests FAIL (still call `deps["notify"]`); build_deps test FAILS (`KeyError: 'run_post_run'`).
 
-- [ ] **Step 3: Update `DEFAULT_CONFIG`**
+- [x] **Step 3: Update `DEFAULT_CONFIG`**
 
 In `watcher.py`, the dict currently ends:
 
@@ -594,7 +594,7 @@ Replace those two lines with:
 }
 ```
 
-- [ ] **Step 4: Update `build_deps` and `run_once`**
+- [x] **Step 4: Update `build_deps` and `run_once`**
 
 In `build_deps()`, replace the line `"notify": watcher_actions.notify_run,` with:
 
@@ -618,7 +618,7 @@ def run_once(cfg, script_path, deps, log) -> dict:
     return result
 ```
 
-- [ ] **Step 5: Update the TOML files**
+- [x] **Step 5: Update the TOML files**
 
 In BOTH `watcher.toml` and `watcher.example.toml`: remove the `[notify]` block and the `[[actions]] mytv` block; keep the `[[actions]] summarize` block (in `watcher.toml`, change the `mytv` action block to the `[[post_run]]` form below — do not leave a `channel = 38` action). Read each file first, then set the post-publish section to:
 
@@ -645,7 +645,7 @@ channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }
 
 Note: `watcher.toml` is gitignored (local config) — edit it but it won't be committed; `watcher.example.toml` IS committed.
 
-- [ ] **Step 6: Run full suite + TOML parse check**
+- [x] **Step 6: Run full suite + TOML parse check**
 
 ```bash
 python3 -m unittest test_publish_video test_watcher -v 2>&1 | tail -5
@@ -653,7 +653,7 @@ python3 -c "import tomllib; tomllib.load(open('watcher.toml','rb')); tomllib.loa
 ```
 Expected: all tests PASS; `TOML OK`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add skills/publish-video/scripts/watcher.py skills/publish-video/scripts/watcher.example.toml skills/publish-video/scripts/test_watcher.py
@@ -667,7 +667,7 @@ git commit -m "$(printf 'feat: [[post_run]] registry wired into run_once; retire
 **Files:**
 - Modify: `skills/publish-video/REFERENCE.md`
 
-- [ ] **Step 1: Update the watcher config + scheduling docs**
+- [x] **Step 1: Update the watcher config + scheduling docs**
 
 In `skills/publish-video/REFERENCE.md`, find the watcher `### Config` bullets and the `### Scheduling` section. Make these changes:
 
@@ -691,12 +691,12 @@ defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. 
 
 3. If the JSON-output or flags section references the old per-video `mytv` action with a `channel`, leave the engine's `--sink mytv --channel` docs as-is (the engine CLI is unchanged) — only the watcher's action moved.
 
-- [ ] **Step 2: Verify the docs read consistently**
+- [x] **Step 2: Verify the docs read consistently**
 
 Run: `grep -n "post_run\|mytv\|notify" skills/publish-video/REFERENCE.md`
 Confirm there is no remaining claim that `mytv` is a per-video action with a fixed `channel`, and no claim that `notify` is a stub or a `[notify]` block.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add skills/publish-video/REFERENCE.md
@@ -709,9 +709,9 @@ git commit -m "$(printf 'docs: [[post_run]] registry, per-platform auto-create m
 
 **Files:** none (verification only). The controller runs this against the live MyTV instance after Tasks 1–6 merge-ready.
 
-- [ ] **Step 1: Confirm the live watcher.toml has the `[[post_run]]` mytv block enabled** (from Task 5 Step 5), with `channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }`.
+- [x] **Step 1: Confirm the live watcher.toml has the `[[post_run]]` mytv block enabled** (from Task 5 Step 5), with `channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }`.
 
-- [ ] **Step 2: Faithful live test of `mytv_action` without re-downloading.** Build a one-item `run_context` pointing at an existing bucket MP4 and invoke `mytv_action` against the live instance (env from publish-video `.env`), confirming the platform channel auto-creates and the item registers:
+- [x] **Step 2: Faithful live test of `mytv_action` without re-downloading.** Build a one-item `run_context` pointing at an existing bucket MP4 and invoke `mytv_action` against the live instance (env from publish-video `.env`), confirming the platform channel auto-creates and the item registers:
 
 ```bash
 cd /Users/kunwu/Workspace/playground/publish-video-plugin
@@ -728,7 +728,7 @@ print(act.mytv_action(ctx, {'enabled': True, 'type': 'vod_on_demand', 'category'
 ```
 Expected: prints `{'registered': 1, 'channels': {'youtube': <new id>}}`.
 
-- [ ] **Step 3: Confirm the channel was created and holds the item:**
+- [x] **Step 3: Confirm the channel was created and holds the item:**
 
 ```bash
 ~/workspace/playground/mytv/target/debug/mytvctl channel list | tr ',' '\n' | grep -i MyYoutube
@@ -737,7 +737,7 @@ curl -sSL "https://kunstv.fly.dev/channel/<id>/playlist"
 ```
 Expected: a "MyYoutube" channel exists (type `vod_on_demand`) and its playlist contains "Me at the zoo".
 
-- [ ] **Step 4: Report** the result (channel id, item present). Note any cleanup the user may want (the test item / the channel).
+- [x] **Step 4: Report** the result (channel id, item present). Note any cleanup the user may want (the test item / the channel).
 
 ---
 
