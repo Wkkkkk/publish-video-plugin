@@ -39,7 +39,8 @@ DEFAULT_CONFIG = {
         {"name": "mytv", "enabled": False, "type": "vod_on_demand", "category": "saved",
          "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
         {"name": "summarize", "enabled": False, "command": "video-summarizer",
-         "out": "~/video-analyses", "lang": "", "visual": False, "notify": True},
+         "out": "~/video-analyses", "lang": "", "whisper_model": "", "cwd": "",
+         "visual": False, "notify": True},
     ],
 }
 
