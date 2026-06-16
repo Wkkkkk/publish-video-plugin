@@ -95,7 +95,8 @@ def summarize_action(run_context, opts, log=None, env=None,
                      run_fn=subprocess.run, send_fn=send_macos_notification) -> dict:
     """Run-level: summarize each published video with the external `video-summarizer`
     CLI, feeding it the R2 public_url. Writes one markdown per video (the CLI prints
-    its path), isolates per-item failures, and sends one summary notification per run."""
+    its path), isolates per-item failures (a missing CLI aborts the whole action),
+    and sends one summary notification per run."""
     log = log or (lambda m: None)
     env = os.environ if env is None else env
     items = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]

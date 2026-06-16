@@ -397,8 +397,7 @@ class Actions(unittest.TestCase):
         calls, sent = [], []
         def fake_run(cmd, **kw):
             calls.append(cmd)
-            slug = cmd[1].rsplit("/", 1)[-1].replace(".mp4", "")
-            return _Proc(stdout=f"/out/{slug}.md\n", returncode=0)
+            return _Proc(stdout="/out/video.md\n", returncode=0)
         out = act.summarize_action(
             self._mytv_ctx(), {"enabled": True, "out": "/out", "notify": True},
             run_fn=fake_run, send_fn=lambda *a: sent.append(a))
