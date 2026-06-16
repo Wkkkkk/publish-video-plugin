@@ -91,6 +91,45 @@ def mytv_action(run_context, opts, log=None, env=None,
     return {"registered": registered, "channels": channel_ids}
 
 
+def summarize_action(run_context, opts, log=None, env=None,
+                     run_fn=subprocess.run, send_fn=send_macos_notification) -> dict:
+    """Run-level: summarize each published video with the external `video-summarizer`
+    CLI, feeding it the R2 public_url. Writes one markdown per video (the CLI prints
+    its path), isolates per-item failures, and sends one summary notification per run."""
+    log = log or (lambda m: None)
+    env = os.environ if env is None else env
+    items = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]
+    if not items:
+        return {"skipped": "no items"}
+    command = opts.get("command", "video-summarizer")
+    out_dir = os.path.expanduser(opts.get("out", "./analyses"))
+    lang = opts.get("lang") or ""
+    visual = opts.get("visual", False)
+    analyses = []
+    for r in items:
+        cmd = [command, r["public_url"], "--out", out_dir]
+        if lang:
+            cmd += ["--lang", lang]
+        if visual:
+            cmd.append("--visual")
+        try:
+            proc = run_fn(cmd, capture_output=True, text=True, env=env)
+        except FileNotFoundError:
+            raise RuntimeError(f"summarize: command not found: {command}")
+        stdout = (proc.stdout or "").strip()
+        path = stdout.splitlines()[-1].strip() if stdout else ""
+        if path.endswith(".md"):  # CLI prints the written path; .md => a file exists
+            analyses.append({"title": r["title"], "path": path})
+        else:
+            log(f"summarize: {r.get('title')!r} failed (exit {proc.returncode}): "
+                f"{(proc.stderr or '').strip()[:200]}")
+    if analyses and opts.get("notify", True):
+        titles = ", ".join(a["title"] for a in analyses)
+        send_fn(opts.get("title", "video-summarizer"),
+                f"{len(analyses)} analyses → {out_dir}: {titles}")
+    return {"summarized": len(analyses), "out": out_dir, "analyses": analyses}
+
+
 ACTIONS = {
     "summarize": run_summarize,
 }
@@ -98,6 +137,7 @@ ACTIONS = {
 POST_RUN_ACTIONS = {
     "notify": notify_action,
     "mytv": mytv_action,
+    "summarize": summarize_action,
 }
 
 

@@ -168,6 +168,11 @@ SAMPLE_RESULT = {
 }
 
 
+class _Proc:  # minimal stand-in for subprocess.CompletedProcess
+    def __init__(self, stdout="", stderr="", returncode=0):
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
+
+
 class Actions(unittest.TestCase):
     def test_enabled_actions_filters_and_strips(self):
         config = [
@@ -380,6 +385,84 @@ class Actions(unittest.TestCase):
         out = act.run_post_run({"outcomes": [], "listing_errors": [], "summary": "s"},
                                [{"name": "nope", "enabled": True}], registry={}, log=lambda m: None)
         self.assertFalse(out[0]["ok"]); self.assertEqual(out[0]["error"], "unknown action")
+
+    def test_summarize_action_no_items_skips(self):
+        def boom(*a, **k): raise AssertionError("should not run")
+        out = act.summarize_action(
+            {"outcomes": [{"ok": False}], "listing_errors": [], "summary": "s"},
+            {"enabled": True}, run_fn=boom, send_fn=boom)
+        self.assertIn("skipped", out)
+
+    def test_summarize_action_runs_per_item_and_writes(self):
+        calls, sent = [], []
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            slug = cmd[1].rsplit("/", 1)[-1].replace(".mp4", "")
+            return _Proc(stdout=f"/out/{slug}.md\n", returncode=0)
+        out = act.summarize_action(
+            self._mytv_ctx(), {"enabled": True, "out": "/out", "notify": True},
+            run_fn=fake_run, send_fn=lambda *a: sent.append(a))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1], "https://b/y1.mp4")
+        self.assertIn("--out", calls[0]); self.assertIn("/out", calls[0])
+        self.assertEqual(out["summarized"], 2)
+        self.assertEqual([a["title"] for a in out["analyses"]], ["Y1", "B1"])
+        self.assertEqual(len(sent), 1)  # exactly one run-level notification
+
+    def test_summarize_action_passes_lang_and_visual(self):
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "lang": "zh", "visual": True, "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertIn("--lang", calls[0]); self.assertIn("zh", calls[0])
+        self.assertIn("--visual", calls[0])
+
+    def test_summarize_action_partial_still_counts(self):
+        out = act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: _Proc(stdout="/o/y.md\n", stderr="warning: summary failed", returncode=1),
+            send_fn=lambda *a: None)
+        self.assertEqual(out["summarized"], 1)  # rc 1 but a file was written
+
+    def test_summarize_action_skips_failure_and_isolates(self):
+        def fake_run(cmd, **kw):
+            if cmd[1] == "https://b/y1.mp4":
+                return _Proc(stdout="", stderr="error: GEMINI_API_KEY", returncode=2)
+            return _Proc(stdout="/o/b1.md\n", returncode=0)
+        out = act.summarize_action(self._mytv_ctx(), {"enabled": True, "notify": False},
+                                   run_fn=fake_run, send_fn=lambda *a: None)
+        self.assertEqual(out["summarized"], 1)
+        self.assertEqual([a["title"] for a in out["analyses"]], ["B1"])
+
+    def test_summarize_action_command_not_found_raises(self):
+        def fake_run(cmd, **kw): raise FileNotFoundError(cmd[0])
+        with self.assertRaises(RuntimeError):
+            act.summarize_action(self._mytv_ctx(), {"enabled": True},
+                                 run_fn=fake_run, send_fn=lambda *a: None)
+
+    def test_summarize_action_one_notification_with_titles(self):
+        sent = []
+        act.summarize_action(
+            self._mytv_ctx(), {"enabled": True, "out": "/o", "title": "VS"},
+            run_fn=lambda cmd, **kw: _Proc(stdout="/o/x.md\n", returncode=0),
+            send_fn=lambda *a: sent.append(a))
+        self.assertEqual(len(sent), 1)
+        title, msg = sent[0]
+        self.assertEqual(title, "VS")
+        self.assertIn("Y1", msg); self.assertIn("B1", msg)
+
+    def test_summarize_action_notify_disabled(self):
+        sent = []
+        act.summarize_action(
+            self._mytv_ctx(), {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: _Proc(stdout="/o/x.md\n", returncode=0),
+            send_fn=lambda *a: sent.append(a))
+        self.assertEqual(sent, [])
 
 
 class Config(unittest.TestCase):
