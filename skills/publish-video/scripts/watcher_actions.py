@@ -11,12 +11,6 @@ import sys
 import publish_video  # reuse the engine's MyTV helpers, unchanged
 
 
-def run_summarize(result, opts, **_) -> dict:
-    # Stub: summarization not implemented in v1. A real version would need the local
-    # file, which the shell-out engine deletes after upload — see plan "Known limits".
-    return {"skipped": "summarize not implemented"}
-
-
 def send_macos_notification(title, message, run_fn=subprocess.run) -> None:
     esc = lambda s: s.replace("\\", "\\\\").replace('"', '\\"')
     script = f'display notification "{esc(message)}" with title "{esc(title)}"'
@@ -131,9 +125,7 @@ def summarize_action(run_context, opts, log=None, env=None,
     return {"summarized": len(analyses), "out": out_dir, "analyses": analyses}
 
 
-ACTIONS = {
-    "summarize": run_summarize,
-}
+ACTIONS = {}  # no per-video actions in v1; run-level actions live in POST_RUN_ACTIONS
 
 POST_RUN_ACTIONS = {
     "notify": notify_action,

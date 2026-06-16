@@ -273,9 +273,6 @@ class Actions(unittest.TestCase):
         self.assertEqual(out["registered"], 1)
         self.assertEqual(out["channels"], {"bilibili": 2})
 
-    def test_stubs_return_skipped(self):
-        self.assertIn("skipped", act.run_summarize(SAMPLE_RESULT, {}))
-
     def test_send_macos_notification_command_shape(self):
         calls = []
         act.send_macos_notification(
