@@ -120,7 +120,9 @@ defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. 
 `summarize` runs the external `video-summarizer` CLI over each published video's R2 `public_url`,
 writing `<out>/<slug>.md` (transcript + summary + chapters). Options: `command` (CLI path — use an
 absolute venv path under launchd), `out` (output dir, default `~/video-analyses`), `lang`
-(`""` = auto-detect), `visual` (off; the expensive Gemini Pro pass — run by hand instead), and
-`notify` (one summary notification per run). Requires `video-summarizer` installed and
-`GEMINI_API_KEY` in the environment (fold it into the watcher `.env`). A per-video failure is
-logged and skipped; the run still completes.
+(`""` = auto-detect), `whisper_model` (`""` = the CLI's default; set e.g. `base` to match an
+installed model), `cwd` (working dir for the CLI — set to the video-summarizer project dir if the
+CLI resolves its whisper model path relative to its working directory), `visual` (off; the
+expensive Gemini Pro pass — run by hand instead), and `notify` (one summary notification per run).
+Requires `video-summarizer` installed and `GEMINI_API_KEY` in the environment (fold it into the
+watcher `.env`). A per-video failure is logged and skipped; the run still completes.

@@ -460,6 +460,46 @@ class Actions(unittest.TestCase):
             send_fn=lambda *a: sent.append(a))
         self.assertEqual(sent, [])
 
+    def test_summarize_action_passes_whisper_model(self):
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "whisper_model": "base", "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertIn("--whisper-model", calls[0]); self.assertIn("base", calls[0])
+
+    def test_summarize_action_omits_whisper_model_when_unset(self):
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertNotIn("--whisper-model", calls[0])
+
+    def test_summarize_action_runs_in_cwd(self):
+        cwds = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "cwd": "/proj/video-summarizer", "notify": False},
+            run_fn=lambda cmd, **kw: cwds.append(kw.get("cwd")) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertEqual(cwds, ["/proj/video-summarizer"])
+
+    def test_summarize_action_default_cwd_none(self):
+        cwds = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: cwds.append(kw.get("cwd")) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertEqual(cwds, [None])
+
 
 class Config(unittest.TestCase):
     def test_parse_config_merges_defaults(self):

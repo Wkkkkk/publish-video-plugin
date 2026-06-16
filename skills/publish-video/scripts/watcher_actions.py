@@ -100,15 +100,21 @@ def summarize_action(run_context, opts, log=None, env=None,
     out_dir = os.path.expanduser(opts.get("out", "~/video-analyses"))
     lang = opts.get("lang") or ""
     visual = opts.get("visual", False)
+    whisper_model = opts.get("whisper_model") or ""
+    # The CLI resolves its model path relative to its working dir; run it from
+    # the project dir via `cwd` until the tool resolves models by install location.
+    cwd = os.path.expanduser(opts["cwd"]) if opts.get("cwd") else None
     analyses = []
     for r in items:
         cmd = [command, r["public_url"], "--out", out_dir]
         if lang:
             cmd += ["--lang", lang]
+        if whisper_model:
+            cmd += ["--whisper-model", whisper_model]
         if visual:
             cmd.append("--visual")
         try:
-            proc = run_fn(cmd, capture_output=True, text=True, env=env)
+            proc = run_fn(cmd, capture_output=True, text=True, env=env, cwd=cwd)
         except FileNotFoundError:
             raise RuntimeError(f"summarize: command not found: {command}")
         stdout = (proc.stdout or "").strip()

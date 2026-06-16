@@ -42,5 +42,8 @@ command = "video-summarizer"   # absolute path recommended under launchd, e.g.
                                # /Users/you/Workspace/playground/video-summarizer/.venv/bin/video-summarizer
 out = "~/video-analyses"       # where <slug>.md analyses are written (~ is expanded)
 lang = ""                      # "" = auto-detect; or "zh", "en", …
+whisper_model = ""             # "" = the CLI's default; set e.g. "base" to match an installed model
+cwd = ""                       # "" = inherit; set to the video-summarizer project dir if the CLI
+                               # resolves its whisper model path relative to its working directory
 visual = false                 # expensive Gemini Pro pass; run by hand instead
 notify = true                  # one macOS notification per run listing the analyses written
