@@ -519,11 +519,12 @@ class Config(unittest.TestCase):
     def test_default_config_has_post_run(self):
         cfg = w.parse_config("")
         names = [a.get("name") for a in cfg["post_run"]]
-        self.assertEqual(names, ["notify", "mytv"])
-        mytv = [a for a in cfg["post_run"] if a["name"] == "mytv"][0]
-        self.assertEqual(mytv["type"], "vod_on_demand")
-        self.assertEqual(mytv["channels"], {"youtube": "MyYoutube", "bilibili": "MyBilibili"})
-        self.assertNotIn("notify", cfg)
+        self.assertEqual(names, ["notify", "mytv", "summarize"])
+        summarize = [a for a in cfg["post_run"] if a["name"] == "summarize"][0]
+        self.assertFalse(summarize["enabled"])
+        self.assertEqual(summarize["command"], "video-summarizer")
+        self.assertEqual(summarize["out"], "~/video-analyses")
+        self.assertFalse(summarize["visual"])
 
 
 class Publish(unittest.TestCase):
