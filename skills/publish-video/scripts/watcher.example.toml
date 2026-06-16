@@ -40,7 +40,7 @@ name = "summarize"             # analyze each published video with video-summari
 enabled = false
 command = "video-summarizer"   # absolute path recommended under launchd, e.g.
                                # /Users/you/Workspace/playground/video-summarizer/.venv/bin/video-summarizer
-out = "~/video-analyses"       # where <slug>.md analyses are written
+out = "~/video-analyses"       # where <slug>.md analyses are written (~ is expanded)
 lang = ""                      # "" = auto-detect; or "zh", "en", …
 visual = false                 # expensive Gemini Pro pass; run by hand instead
-notify = true                  # one summary notification per run
+notify = true                  # one macOS notification per run listing the analyses written
