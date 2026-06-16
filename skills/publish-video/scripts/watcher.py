@@ -40,7 +40,7 @@ DEFAULT_CONFIG = {
          "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
         {"name": "summarize", "enabled": False, "command": "video-summarizer",
          "out": "~/video-analyses", "lang": "", "whisper_model": "", "cwd": "",
-         "visual": False, "notify": True},
+         "visual": False, "notify": True, "max_workers": 3},
     ],
 }
 

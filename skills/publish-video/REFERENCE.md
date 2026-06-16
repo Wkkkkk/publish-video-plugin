@@ -123,6 +123,9 @@ absolute venv path under launchd), `out` (output dir, default `~/video-analyses`
 (`""` = auto-detect), `whisper_model` (`""` = the CLI's default; set e.g. `base` to match an
 installed model), `cwd` (working dir for the CLI — set to the video-summarizer project dir if the
 CLI resolves its whisper model path relative to its working directory), `visual` (off; the
-expensive Gemini Pro pass — run by hand instead), and `notify` (one summary notification per run).
-Requires `video-summarizer` installed and `GEMINI_API_KEY` in the environment (fold it into the
-watcher `.env`). A per-video failure is logged and skipped; the run still completes.
+expensive Gemini Pro pass — run by hand instead), `notify` (one summary notification per run), and
+`max_workers` (videos summarized concurrently, default `3`). The per-video CLI is CPU-bound on
+Whisper transcription, so a small cap overlaps the Gemini wait without oversubscribing cores;
+1 disables concurrency. Requires `video-summarizer` installed and `GEMINI_API_KEY` in the
+environment (fold it into the watcher `.env`). A per-video failure is logged and skipped; the run
+still completes.

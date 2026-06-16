@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import publish_video  # reuse the engine's MyTV helpers, unchanged
 
@@ -90,7 +91,10 @@ def summarize_action(run_context, opts, log=None, env=None,
     """Run-level: summarize each published video with the external `video-summarizer`
     CLI, feeding it the R2 public_url. Writes one markdown per video (the CLI prints
     its path), isolates per-item failures (a missing CLI aborts the whole action),
-    and sends one summary notification per run."""
+    and sends one summary notification per run. Videos are summarized concurrently,
+    up to `max_workers` at a time (default 3) — the per-video CLI is CPU-bound on
+    Whisper transcription, so a small cap overlaps the Gemini wait without
+    oversubscribing cores."""
     log = log or (lambda m: None)
     env = os.environ if env is None else env
     items = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]
@@ -104,8 +108,11 @@ def summarize_action(run_context, opts, log=None, env=None,
     # The CLI resolves its model path relative to its working dir; run it from
     # the project dir via `cwd` until the tool resolves models by install location.
     cwd = os.path.expanduser(opts["cwd"]) if opts.get("cwd") else None
-    analyses = []
-    for r in items:
+    max_workers = max(1, int(opts.get("max_workers", 3)))
+
+    def summarize_one(r):
+        """Summarize a single video. Returns an analysis dict on success, None on a
+        per-item failure (logged). Raises RuntimeError if the CLI is missing."""
         cmd = [command, r["public_url"], "--out", out_dir]
         if lang:
             cmd += ["--lang", lang]
@@ -120,10 +127,20 @@ def summarize_action(run_context, opts, log=None, env=None,
         stdout = (proc.stdout or "").strip()
         path = stdout.splitlines()[-1].strip() if stdout else ""
         if path.endswith(".md"):  # CLI prints the written path; .md => a file exists
-            analyses.append({"title": r["title"], "path": path})
-        else:
-            log(f"summarize: {r.get('title')!r} failed (exit {proc.returncode}): "
-                f"{(proc.stderr or '').strip()[:200]}")
+            return {"title": r["title"], "path": path}
+        log(f"summarize: {r.get('title')!r} failed (exit {proc.returncode}): "
+            f"{(proc.stderr or '').strip()[:200]}")
+        return None
+
+    workers = min(max_workers, len(items))
+    if workers <= 1:  # common hourly case (0-1 new videos): stay thread-free
+        results = [summarize_one(r) for r in items]
+    else:
+        # pool.map preserves input order, so analyses follow outcome order; a
+        # RuntimeError (missing CLI) surfaces when the result iterator is consumed.
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(summarize_one, items))
+    analyses = [a for a in results if a]
     if analyses and opts.get("notify", True):
         titles = ", ".join(a["title"] for a in analyses)
         send_fn(opts.get("title", "video-summarizer"),

@@ -47,3 +47,6 @@ cwd = ""                       # "" = inherit; set to the video-summarizer proje
                                # resolves its whisper model path relative to its working directory
 visual = false                 # expensive Gemini Pro pass; run by hand instead
 notify = true                  # one macOS notification per run listing the analyses written
+max_workers = 3                # summarize this many videos at once; Whisper is CPU-bound,
+                               # so keep this small (3) to overlap the Gemini wait without
+                               # oversubscribing cores
