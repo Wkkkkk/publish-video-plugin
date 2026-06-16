@@ -93,13 +93,13 @@ Loop mode (no `--once`) polls every `poll_interval_mins`.
 - `concurrent_fragments` — passed to yt-dlp as `-N` (default 4), parallelizing one video's fragment downloads. Speeds up a single large video.
 - `state_path` — local dedup record (leading `~` is expanded). Never your source.
 - `platforms.<name>.source` — `watch_later` or a full playlist/folder URL. Bare IDs are not supported in v1. Naming any platform replaces the default platforms table wholesale, so list every platform you want polled.
-- `actions` — ordered per-video post-publish steps (run once per published video). `summarize` is a no-op stub. Add one via a function + an `ACTIONS` entry + a config block.
-- `post_run` — ordered run-level actions (run once per poll, after publishing), via a parallel `[[post_run]]` registry. Built in: `notify` (macOS Notification Center) and `mytv` (auto-register published videos into MyTV). Add one via a function + a `POST_RUN_ACTIONS` entry + a `[[post_run]]` block.
+- `actions` — ordered per-video post-publish steps (run once per published video). None built in for v1. Add one via a function + an `ACTIONS` entry + an `[[actions]]` block.
+- `post_run` — ordered run-level actions (run once per poll, after publishing), via a parallel `[[post_run]]` registry. Built in: `notify` (macOS Notification Center), `mytv` (auto-register published videos into MyTV), and `summarize` (analyze each published video with the external `video-summarizer` CLI). Add one via a function + a `POST_RUN_ACTIONS` entry + a `[[post_run]]` block.
 
 ### Behavior & limitations (v1)
 - Read-only source; failed publishes are not recorded and retry next pass.
 - A listing failure on one platform does not stop the others.
-- `summarize` is a stub; a real `summarize` needs the local file, which the engine deletes after upload.
+- `summarize` (a `[[post_run]]` action) analyzes the **uploaded R2 URL**, not the local file (which the engine deletes after upload), so it runs at the run level rather than per-video.
 
 ### Scheduling
 Run `python3 .../watcher.py --once` from a local Claude routine (`/schedule`) or an OS cron/launchd timer. It must run where your cookies + `PUBLISH_VIDEO_*`/`MYTV_*` env resolve (i.e. locally).
@@ -116,3 +116,11 @@ takes `trigger` = `activity` (published or failed > 0, or a listing error) | `fa
 channel if missing: the channel name is `channels.<platform>` (e.g. `youtube = "MyYoutube"`),
 defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. Needs
 `MYTV_BASE_URL` + `MYTV_ADMIN_PASSWORD` in the environment.
+
+`summarize` runs the external `video-summarizer` CLI over each published video's R2 `public_url`,
+writing `<out>/<slug>.md` (transcript + summary + chapters). Options: `command` (CLI path — use an
+absolute venv path under launchd), `out` (output dir, default `~/video-analyses`), `lang`
+(`""` = auto-detect), `visual` (off; the expensive Gemini Pro pass — run by hand instead), and
+`notify` (one summary notification per run). Requires `video-summarizer` installed and
+`GEMINI_API_KEY` in the environment (fold it into the watcher `.env`). A per-video failure is
+logged and skipped; the run still completes.

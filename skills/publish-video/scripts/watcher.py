@@ -33,11 +33,13 @@ DEFAULT_CONFIG = {
         "youtube": {"source": "watch_later"},
         "bilibili": {"source": "watch_later"},
     },
-    "actions": [{"name": "summarize", "enabled": False}],
+    "actions": [],
     "post_run": [
         {"name": "notify", "enabled": False, "trigger": "activity", "title": "publish-video watcher"},
         {"name": "mytv", "enabled": False, "type": "vod_on_demand", "category": "saved",
          "channels": {"youtube": "MyYoutube", "bilibili": "MyBilibili"}},
+        {"name": "summarize", "enabled": False, "command": "video-summarizer",
+         "out": "~/video-analyses", "lang": "", "visual": False, "notify": True},
     ],
 }
 

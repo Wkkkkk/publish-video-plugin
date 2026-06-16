@@ -18,10 +18,8 @@ source = "watch_later"         # or a full playlist/folder URL, e.g.
 [platforms.bilibili]
 source = "watch_later"         # or a full favorites-folder URL
 
-# Per-video actions run in order for each newly-published video.
-[[actions]]
-name = "summarize"             # stub in v1 (no-op)
-enabled = false
+# Per-video actions run in order for each newly-published video. None built in for v1;
+# add one via a function + an ACTIONS entry + an [[actions]] block.
 
 # Run-level actions run once per poll, after publishing.
 [[post_run]]
@@ -36,3 +34,13 @@ enabled = false
 type = "vod_on_demand"
 category = "saved"
 channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }
+
+[[post_run]]
+name = "summarize"             # analyze each published video with video-summarizer
+enabled = false
+command = "video-summarizer"   # absolute path recommended under launchd, e.g.
+                               # /Users/you/Workspace/playground/video-summarizer/.venv/bin/video-summarizer
+out = "~/video-analyses"       # where <slug>.md analyses are written (~ is expanded)
+lang = ""                      # "" = auto-detect; or "zh", "en", …
+visual = false                 # expensive Gemini Pro pass; run by hand instead
+notify = true                  # one macOS notification per run listing the analyses written
