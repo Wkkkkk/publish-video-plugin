@@ -399,9 +399,12 @@ class Actions(unittest.TestCase):
             self._mytv_ctx(), {"enabled": True, "out": "/out", "notify": True},
             run_fn=fake_run, send_fn=lambda *a: sent.append(a))
         self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0][1], "https://b/y1.mp4")
-        self.assertIn("--out", calls[0]); self.assertIn("/out", calls[0])
+        # Order of calls is nondeterministic under the parallel pool; assert the set.
+        self.assertEqual({c[1] for c in calls}, {"https://b/y1.mp4", "https://b/b1.mp4"})
+        for c in calls:
+            self.assertIn("--out", c); self.assertIn("/out", c)
         self.assertEqual(out["summarized"], 2)
+        # analyses preserve input (outcome) order even when run concurrently.
         self.assertEqual([a["title"] for a in out["analyses"]], ["Y1", "B1"])
         self.assertEqual(len(sent), 1)  # exactly one run-level notification
 
@@ -500,6 +503,53 @@ class Actions(unittest.TestCase):
             send_fn=lambda *a: None)
         self.assertEqual(cwds, [None])
 
+    def _parallel_probe(self, cap, n_items):
+        """A fake run_fn that records peak concurrency. A `threading.Barrier(cap)`
+        forces `cap` workers to overlap (proving the pool reaches the cap), while the
+        pool's own bound keeps peak from exceeding it — so a correct implementation
+        yields state["max"] == cap exactly. A serial implementation never fills the
+        barrier: it times out, peak stays 1, and the caller's assertion fails."""
+        import threading
+        barrier = threading.Barrier(cap, timeout=3)
+        lock = threading.Lock()
+        state = {"now": 0, "max": 0}
+
+        def fake_run(cmd, **kw):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
+            with lock:
+                state["now"] -= 1
+            return _Proc(stdout="/o/x.md\n", returncode=0)
+
+        ctx = {"outcomes": [{"ok": True, "result": {"platform": "p", "title": f"T{i}",
+                "public_url": f"u{i}", "duration_secs": 1}} for i in range(n_items)],
+               "listing_errors": [], "summary": "s"}
+        return fake_run, state, ctx
+
+    def test_summarize_action_runs_concurrently_up_to_max_workers(self):
+        fake_run, state, ctx = self._parallel_probe(cap=3, n_items=6)
+        out = act.summarize_action(ctx, {"enabled": True, "max_workers": 3, "notify": False},
+                                   run_fn=fake_run, send_fn=lambda *a: None)
+        self.assertEqual(out["summarized"], 6)
+        self.assertEqual(state["max"], 3)  # reached the cap, never exceeded it
+
+    def test_summarize_action_respects_lower_max_workers(self):
+        fake_run, state, ctx = self._parallel_probe(cap=2, n_items=6)
+        act.summarize_action(ctx, {"enabled": True, "max_workers": 2, "notify": False},
+                             run_fn=fake_run, send_fn=lambda *a: None)
+        self.assertEqual(state["max"], 2)
+
+    def test_summarize_action_default_max_workers_is_3(self):
+        fake_run, state, ctx = self._parallel_probe(cap=3, n_items=6)
+        act.summarize_action(ctx, {"enabled": True, "notify": False},  # no max_workers
+                             run_fn=fake_run, send_fn=lambda *a: None)
+        self.assertEqual(state["max"], 3)
+
 
 class Config(unittest.TestCase):
     def test_parse_config_merges_defaults(self):
@@ -565,6 +615,7 @@ class Config(unittest.TestCase):
         self.assertEqual(summarize["command"], "video-summarizer")
         self.assertEqual(summarize["out"], "~/video-analyses")
         self.assertFalse(summarize["visual"])
+        self.assertEqual(summarize["max_workers"], 3)
 
 
 class Publish(unittest.TestCase):
