@@ -97,7 +97,7 @@ def summarize_action(run_context, opts, log=None, env=None,
     if not items:
         return {"skipped": "no items"}
     command = opts.get("command", "video-summarizer")
-    out_dir = os.path.expanduser(opts.get("out", "./analyses"))
+    out_dir = os.path.expanduser(opts.get("out", "~/video-analyses"))
     lang = opts.get("lang") or ""
     visual = opts.get("visual", False)
     analyses = []
