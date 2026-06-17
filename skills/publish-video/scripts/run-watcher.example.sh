@@ -16,7 +16,9 @@ if [ -f "$LOG" ] && [ "$(stat -f%z "$LOG" 2>/dev/null || echo 0)" -gt "$MAX_BYTE
 fi
 
 # Homebrew bin first so yt-dlp / python3 / ffmpeg / ffprobe resolve under launchd.
-export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# ~/.local/bin holds pipx shims (e.g. video-summarizer) — needed if the summarize
+# action's `command` is the bare name rather than an absolute path.
+export PATH="/opt/homebrew/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # S3 / MyTV credentials + config (PUBLISH_VIDEO_*, AWS_*, MYTV_*).
 set -a

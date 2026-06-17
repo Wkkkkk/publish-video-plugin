@@ -105,6 +105,11 @@ def summarize_action(run_context, opts, log=None, env=None,
     lang = opts.get("lang") or ""
     visual = opts.get("visual", False)
     whisper_model = opts.get("whisper_model") or ""
+    # Backend selection (CLI defaults to gemini when omitted). Leave both unset to
+    # keep the GEMINI_API_KEY path; set summary_backend="claude" to use Claude
+    # (needs ANTHROPIC_API_KEY in the watcher's environment).
+    summary_backend = opts.get("summary_backend") or ""
+    summary_model = opts.get("summary_model") or ""
     # The CLI resolves its model path relative to its working dir; run it from
     # the project dir via `cwd` until the tool resolves models by install location.
     cwd = os.path.expanduser(opts["cwd"]) if opts.get("cwd") else None
@@ -118,6 +123,10 @@ def summarize_action(run_context, opts, log=None, env=None,
             cmd += ["--lang", lang]
         if whisper_model:
             cmd += ["--whisper-model", whisper_model]
+        if summary_backend:
+            cmd += ["--summary-backend", summary_backend]
+        if summary_model:
+            cmd += ["--summary-model", summary_model]
         if visual:
             cmd.append("--visual")
         try:

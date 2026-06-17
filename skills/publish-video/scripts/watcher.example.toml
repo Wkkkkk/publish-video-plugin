@@ -38,11 +38,15 @@ channels = { youtube = "MyYoutube", bilibili = "MyBilibili" }
 [[post_run]]
 name = "summarize"             # analyze each published video with video-summarizer
 enabled = false
-command = "video-summarizer"   # absolute path recommended under launchd, e.g.
-                               # /Users/you/Workspace/playground/video-summarizer/.venv/bin/video-summarizer
+command = "video-summarizer"   # pipx puts this on PATH (~/.local/bin); under launchd
+                               # either add ~/.local/bin to PATH (see run-watcher.example.sh)
+                               # or give the absolute path, e.g. /Users/you/.local/bin/video-summarizer
 out = "~/video-analyses"       # where <slug>.md analyses are written (~ is expanded)
 lang = ""                      # "" = auto-detect; or "zh", "en", …
 whisper_model = ""             # "" = the CLI's default; set e.g. "base" to match an installed model
+summary_backend = ""           # "" = the CLI's default (gemini, needs GEMINI_API_KEY). Set "claude"
+                               # to use the Anthropic backend instead (needs ANTHROPIC_API_KEY).
+summary_model = ""             # "" = the backend's default model; override e.g. "gemini-flash-latest"
 cwd = ""                       # "" = inherit; set to the video-summarizer project dir if the CLI
                                # resolves its whisper model path relative to its working directory
 visual = false                 # expensive Gemini Pro pass; run by hand instead
