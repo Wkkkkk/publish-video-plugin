@@ -519,6 +519,33 @@ class Actions(unittest.TestCase):
             send_fn=lambda *a: None)
         self.assertEqual(cwds, [None])
 
+    def test_summarize_action_passes_summary_backend_and_model(self):
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "summary_backend": "claude",
+             "summary_model": "claude-opus-4-8", "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertIn("--summary-backend", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--summary-backend") + 1], "claude")
+        self.assertIn("--summary-model", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--summary-model") + 1], "claude-opus-4-8")
+
+    def test_summarize_action_omits_backend_flags_when_unset(self):
+        # Default: pass nothing → the CLI uses its own default (Gemini), keeping the
+        # live watcher's GEMINI_API_KEY path unchanged.
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",
+             "public_url": "u", "duration_secs": 1}}], "listing_errors": [], "summary": "s"},
+            {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertNotIn("--summary-backend", calls[0])
+        self.assertNotIn("--summary-model", calls[0])
+
     def _parallel_probe(self, cap, n_items):
         """A fake run_fn that records peak concurrency. A `threading.Barrier(cap)`
         forces `cap` workers to overlap (proving the pool reaches the cap), while the

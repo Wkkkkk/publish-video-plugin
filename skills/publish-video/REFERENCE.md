@@ -118,14 +118,21 @@ defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. 
 `MYTV_BASE_URL` + `MYTV_ADMIN_PASSWORD` in the environment.
 
 `summarize` runs the external `video-summarizer` CLI over each published video's R2 `public_url`,
-writing `<out>/<slug>.md` (transcript + summary + chapters). Options: `command` (CLI path — use an
-absolute venv path under launchd), `out` (output dir, default `~/video-analyses`), `lang`
+writing `<out>/<slug>.md` (transcript + summary + chapters). Options: `command` (CLI path — `pipx`
+installs it on PATH at `~/.local/bin/video-summarizer`; under launchd's minimal PATH give the
+absolute path, or add `~/.local/bin` to the wrapper's PATH), `out` (output dir, default
+`~/video-analyses`), `lang`
 (`""` = auto-detect), `whisper_model` (`""` = the CLI's default; set e.g. `base` to match an
-installed model), `cwd` (working dir for the CLI — set to the video-summarizer project dir if the
+installed model), `summary_backend` (`""` = the CLI's default `gemini`; set `claude` for the
+Anthropic backend), `summary_model` (`""` = the backend's default model; e.g. `gemini-flash-latest`
+for a cheaper pass), `cwd` (working dir for the CLI — set to the video-summarizer project dir if the
 CLI resolves its whisper model path relative to its working directory), `visual` (off; the
 expensive Gemini Pro pass — run by hand instead), `notify` (one summary notification per run), and
 `max_workers` (videos summarized concurrently, default `3`). The per-video CLI is CPU-bound on
 Whisper transcription, so a small cap overlaps the Gemini wait without oversubscribing cores;
-1 disables concurrency. Requires `video-summarizer` installed and `GEMINI_API_KEY` in the
-environment (fold it into the watcher `.env`). A per-video failure is logged and skipped; the run
+1 disables concurrency. Requires `video-summarizer` installed plus a backend API key in the
+environment — `GEMINI_API_KEY` for the default backend, or `ANTHROPIC_API_KEY` with
+`summary_backend = "claude"` (fold whichever into the watcher `.env`). No cookies flag is passed:
+the action summarizes each video's already-public R2 URL, not the original (possibly login-gated)
+source, so there is no session to authenticate. A per-video failure is logged and skipped; the run
 still completes.
