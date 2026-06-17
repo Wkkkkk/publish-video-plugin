@@ -419,6 +419,22 @@ class Actions(unittest.TestCase):
         self.assertIn("--lang", calls[0]); self.assertIn("zh", calls[0])
         self.assertIn("--visual", calls[0])
 
+    def test_summarize_action_passes_clean_title(self):
+        # The CLI only sees the metadata-less R2 public_url, so the watcher must
+        # feed it the clean listing title via --title for a vault-ready note.
+        calls = []
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": {"platform": "youtube",
+             "title": "讲透 Agentic Design Patterns 1/21",
+             "public_url": "https://r2/x.mp4", "duration_secs": 1}}],
+             "listing_errors": [], "summary": "s"},
+            {"enabled": True, "notify": False},
+            run_fn=lambda cmd, **kw: calls.append(cmd) or _Proc(stdout="/o/y.md", returncode=0),
+            send_fn=lambda *a: None)
+        self.assertIn("--title", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--title") + 1],
+                         "讲透 Agentic Design Patterns 1/21")
+
     def test_summarize_action_partial_still_counts(self):
         out = act.summarize_action(
             {"outcomes": [{"ok": True, "result": {"platform": "youtube", "title": "Y",

@@ -113,7 +113,7 @@ def summarize_action(run_context, opts, log=None, env=None,
     def summarize_one(r):
         """Summarize a single video. Returns an analysis dict on success, None on a
         per-item failure (logged). Raises RuntimeError if the CLI is missing."""
-        cmd = [command, r["public_url"], "--out", out_dir]
+        cmd = [command, r["public_url"], "--out", out_dir, "--title", r["title"]]
         if lang:
             cmd += ["--lang", lang]
         if whisper_model:
