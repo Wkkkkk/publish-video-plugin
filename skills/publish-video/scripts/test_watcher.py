@@ -36,6 +36,23 @@ class State(unittest.TestCase):
             with open(path) as f:
                 self.assertEqual(json.load(f), ["bilibili:b", "youtube:a"])  # sorted
 
+    def test_pending_path_sits_beside_state(self):
+        self.assertEqual(
+            st.pending_path_for("/a/b/state.json"), "/a/b/mytv_pending.json")
+
+    def test_load_pending_missing_or_no_path_is_empty(self):
+        self.assertEqual(st.load_pending("/no/such/pending.json"), [])
+        self.assertEqual(st.load_pending(None), [])
+
+    def test_save_then_load_pending_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "mytv_pending.json")  # nested dir must be created
+            st.save_pending(path, [{"public_url": "u1"}])
+            self.assertEqual(st.load_pending(path), [{"public_url": "u1"}])
+
+    def test_save_pending_none_path_is_noop(self):
+        st.save_pending(None, [{"public_url": "u1"}])  # must not raise
+
 
 class FakeProc:
     def __init__(self, returncode=0, stdout="", stderr=""):
@@ -272,6 +289,60 @@ class Actions(unittest.TestCase):
         self.assertEqual(registered, [(2, "B1")])
         self.assertEqual(out["registered"], 1)
         self.assertEqual(out["channels"], {"bilibili": 2})
+
+    def test_mytv_action_queues_all_when_server_unreachable(self):
+        # list_channels fails (MyTV offline): every item is queued, nothing lost.
+        with tempfile.TemporaryDirectory() as d:
+            pending = os.path.join(d, "mytv_pending.json")
+            out = act.mytv_action(
+                self._mytv_ctx(), {"enabled": True}, pending_path=pending,
+                env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+                list_channels=lambda base, pw: (_ for _ in ()).throw(RuntimeError("could not reach tv")),
+            )
+            self.assertEqual(out["registered"], 0)
+            self.assertEqual(out["pending"], 2)
+            queued = {r["title"] for r in st.load_pending(pending)}
+            self.assertEqual(queued, {"Y1", "B1"})
+
+    def test_mytv_action_retries_queued_items_then_clears(self):
+        # A previously-queued item is retried on a later run and the queue is cleared.
+        with tempfile.TemporaryDirectory() as d:
+            pending = os.path.join(d, "mytv_pending.json")
+            st.save_pending(pending, [{"platform": "youtube", "title": "Old",
+                                       "public_url": "https://b/old.mp4", "duration_secs": 5}])
+            registered = []
+            out = act.mytv_action(
+                {"outcomes": [], "listing_errors": [], "summary": "s"},
+                {"enabled": True}, pending_path=pending,
+                env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+                list_channels=lambda base, pw: [],
+                ensure_channel=lambda *a, **k: 9,
+                register_item=lambda base, cid, pw, payload: registered.append(payload["title"]) or {"id": cid},
+                build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+            )
+            self.assertEqual(registered, ["Old"])
+            self.assertEqual(out["registered"], 1)
+            self.assertEqual(st.load_pending(pending), [])
+
+    def test_mytv_action_failed_item_stays_queued_succeeded_clears(self):
+        # Mixed run: the item that fails to register is queued; the rest clears.
+        with tempfile.TemporaryDirectory() as d:
+            pending = os.path.join(d, "mytv_pending.json")
+            def reg(base, cid, pw, payload):
+                if payload["title"] == "Y1":
+                    raise RuntimeError("register boom")
+                return {"id": cid}
+            out = act.mytv_action(
+                self._mytv_ctx(), {"enabled": True}, pending_path=pending,
+                env={"MYTV_BASE_URL": "https://tv", "MYTV_ADMIN_PASSWORD": "pw"},
+                list_channels=lambda base, pw: [],
+                ensure_channel=lambda *a, **k: 1,
+                register_item=reg,
+                build_payload=lambda title, url, dur: {"title": title, "url": url, "duration_secs": dur},
+            )
+            self.assertEqual(out["registered"], 1)
+            self.assertEqual(out["pending"], 1)
+            self.assertEqual([r["title"] for r in st.load_pending(pending)], ["Y1"])
 
     def test_send_macos_notification_command_shape(self):
         calls = []

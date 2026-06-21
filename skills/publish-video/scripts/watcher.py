@@ -179,7 +179,8 @@ def run_once(cfg, script_path, deps, log) -> dict:
     summary = format_summary(result)
     log(summary)
     run_context = {"outcomes": result["outcomes"],
-                   "listing_errors": result["listing_errors"], "summary": summary}
+                   "listing_errors": result["listing_errors"], "summary": summary,
+                   "state_path": cfg["state_path"]}  # lets the mytv action find its retry queue
     try:  # post-run actions must never abort the run
         deps["run_post_run"](run_context, cfg["post_run"], log=log)
     except Exception as e:
