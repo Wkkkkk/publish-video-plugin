@@ -10,6 +10,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import publish_video  # reuse the engine's MyTV helpers, unchanged
+import watcher_state
 
 
 def send_macos_notification(title, message, run_fn=subprocess.run) -> None:
@@ -43,20 +44,34 @@ def default_channel_name(platform: str) -> str:
     return "My" + platform.title()
 
 
-def mytv_action(run_context, opts, log=None, env=None,
+def mytv_action(run_context, opts, log=None, env=None, pending_path=None,
                 list_channels=publish_video.list_channels,
                 ensure_channel=publish_video.ensure_channel,
                 register_item=publish_video.register_item,
                 build_payload=publish_video.build_payload) -> dict:
     """Run-level: register each successful item into its platform's MyTV channel,
-    creating the channel if missing. Groups by platform; one ensure per platform."""
+    creating the channel if missing. Groups by platform; one ensure per platform.
+
+    Items published this run are merged with any left in the pending queue (videos
+    that published but failed to register on an earlier pass — e.g. MyTV was
+    offline). Anything that still fails to register is written back to the queue
+    and retried next pass; successes are dropped from it. Without a pending path
+    (state_path absent) the queue is disabled and behaviour is best-effort only."""
     log = log or (lambda m: None)
     env = os.environ if env is None else env
     base = env.get("MYTV_BASE_URL")
     password = env.get("MYTV_ADMIN_PASSWORD")
     if not base or not password:
         raise RuntimeError("mytv action needs MYTV_BASE_URL and MYTV_ADMIN_PASSWORD")
-    items = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]
+    if pending_path is None:
+        state_path = run_context.get("state_path")
+        pending_path = watcher_state.pending_path_for(state_path) if state_path else None
+    pending = watcher_state.load_pending(pending_path)
+    fresh = [o["result"] for o in run_context.get("outcomes", []) if o.get("ok")]
+    # Merge queued + fresh, deduped by public_url (the registration's identity);
+    # a fresh item supersedes a queued one for the same URL.
+    by_url = {r["public_url"]: r for r in pending + fresh}
+    items = list(by_url.values())
     if not items:
         return {"skipped": "no items"}
     by_platform = {}
@@ -65,15 +80,22 @@ def mytv_action(run_context, opts, log=None, env=None,
     channels_cfg = opts.get("channels", {})
     ctype = opts.get("type", "vod_on_demand")
     category = opts.get("category", "")
-    existing = list_channels(base, password)
+    try:
+        existing = list_channels(base, password)
+    except Exception as e:  # MyTV unreachable: queue everything, lose nothing
+        log(f"mytv: list channels failed, queued {len(items)} item(s) for retry: {e}")
+        watcher_state.save_pending(pending_path, items)
+        return {"registered": 0, "pending": len(items), "channels": {}}
     registered = 0
     channel_ids = {}
+    still_pending = []
     for platform, plat_items in by_platform.items():
         name = channels_cfg.get(platform) or default_channel_name(platform)
         try:
             cid = ensure_channel(base, password, name, category, ctype, existing)
         except Exception as e:
-            log(f"mytv: ensure channel {name!r} failed: {e}")
+            log(f"mytv: ensure channel {name!r} failed, queued {len(plat_items)} item(s): {e}")
+            still_pending.extend(plat_items)
             continue
         channel_ids[platform] = cid
         for r in plat_items:
@@ -82,8 +104,13 @@ def mytv_action(run_context, opts, log=None, env=None,
                               build_payload(r["title"], r["public_url"], r["duration_secs"]))
                 registered += 1
             except Exception as e:
-                log(f"mytv: register {r.get('title')!r} failed: {e}")
-    return {"registered": registered, "channels": channel_ids}
+                log(f"mytv: register {r.get('title')!r} failed, queued for retry: {e}")
+                still_pending.append(r)
+    watcher_state.save_pending(pending_path, still_pending)
+    out = {"registered": registered, "channels": channel_ids}
+    if still_pending:
+        out["pending"] = len(still_pending)
+    return out
 
 
 def summarize_action(run_context, opts, log=None, env=None,

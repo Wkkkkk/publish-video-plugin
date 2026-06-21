@@ -115,7 +115,13 @@ takes `trigger` = `activity` (published or failed > 0, or a listing error) | `fa
 `mytv` auto-registers each published video into a MyTV channel **per platform**, creating the
 channel if missing: the channel name is `channels.<platform>` (e.g. `youtube = "MyYoutube"`),
 defaulting to `"My" + Platform` when unset; `type` defaults to `vod_on_demand`. Needs
-`MYTV_BASE_URL` + `MYTV_ADMIN_PASSWORD` in the environment.
+`MYTV_BASE_URL` + `MYTV_ADMIN_PASSWORD` in the environment. Because a video is published and
+recorded in `state.json` *before* this action runs, a registration that fails (MyTV offline, API
+error) is **queued, not lost**: failed items are written to `mytv_pending.json` beside `state.json`
+and merged in + retried on every later pass, then dropped once registered. So a MyTV outage just
+delays registration until the next poll after it recovers — no manual state edit needed. The
+action returns `pending: <n>` when items remain queued. (Retries are at poll cadence only; there
+is no in-run backoff.)
 
 `summarize` runs the external `video-summarizer` CLI over each published video's R2 `public_url`,
 writing `<out>/<slug>.md` (transcript + summary + chapters). Options: `command` (CLI path — `pipx`
