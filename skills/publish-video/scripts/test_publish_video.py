@@ -291,6 +291,21 @@ class Results(unittest.TestCase):
         self.assertEqual(r["duration_secs"], 12)
         self.assertTrue(r["passthrough"])
         self.assertNotIn("error", r)
+        self.assertEqual(r["platform"], "local")
+
+    def test_build_result_bilibili_platform(self):
+        r = v.build_result(
+            "https://www.bilibili.com/video/BV1abc", "ytdlp_url",
+            "T", "https://r2/v.mp4", "v.mp4", 60, False, False,
+        )
+        self.assertEqual(r["platform"], "bilibili")
+
+    def test_build_result_youtube_platform(self):
+        r = v.build_result(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "ytdlp_url",
+            "T", "https://r2/v.mp4", "v.mp4", 60, False, False,
+        )
+        self.assertEqual(r["platform"], "youtube")
 
     def test_error_result(self):
         r = v.error_result("src", "ytdlp_url", "boom")

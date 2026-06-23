@@ -371,7 +371,7 @@ def upload_to_bucket(path: str, endpoint: str, bucket: str, key: str, content_ty
 
 def build_result(source, stype, title, public, key, duration, passthrough, transcoded) -> dict:
     return {
-        "source": source, "type": stype, "title": title,
+        "source": source, "type": stype, "platform": detect_platform(source), "title": title,
         "public_url": public, "object_key": key, "duration_secs": duration,
         "passthrough": passthrough, "transcoded": transcoded,
     }
