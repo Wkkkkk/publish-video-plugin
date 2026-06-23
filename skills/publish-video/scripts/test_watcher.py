@@ -664,6 +664,101 @@ class Actions(unittest.TestCase):
                              run_fn=fake_run, send_fn=lambda *a: None)
         self.assertEqual(state["max"], 3)
 
+    def test_inject_frontmatter_adds_origin_fields(self):
+        content = "---\ntitle: T\nsource: https://r2/v.mp4\nduration: '1:00'\n---\n# T\n"
+        written = []
+        def fake_open(path, mode="r", encoding="utf-8"):
+            import io
+            if mode == "r":
+                return io.StringIO(content)
+            buf = io.StringIO()
+            buf.close = lambda: written.append(buf.getvalue())
+            return buf
+        act._inject_frontmatter("/out/v.md", "bilibili",
+                                "https://www.bilibili.com/video/BV1xxx",
+                                open_fn=fake_open)
+        self.assertEqual(len(written), 1)
+        fm = written[0]
+        self.assertIn("origin: bilibili\n", fm)
+        self.assertIn("origin_url: https://www.bilibili.com/video/BV1xxx\n", fm)
+        # origin fields appear before closing ---
+        close = fm.index("\n---\n", 3)
+        inject_pos = fm.index("origin: bilibili")
+        self.assertLess(inject_pos, close)
+
+    def test_inject_frontmatter_no_frontmatter_is_noop(self):
+        content = "# No frontmatter here\n\nsome body"
+        written = []
+        def fake_open(path, mode="r", encoding="utf-8"):
+            import io
+            if mode == "r":
+                return io.StringIO(content)
+            buf = io.StringIO()
+            buf.close = lambda: written.append(buf.getvalue())
+            return buf
+        act._inject_frontmatter("/out/v.md", "bilibili", "https://b.com/v",
+                                open_fn=fake_open)
+        self.assertEqual(written, [])  # nothing written
+
+    def test_inject_frontmatter_already_present_is_noop(self):
+        content = "---\ntitle: T\norigin: bilibili\norigin_url: https://b.com/v\n---\n# T\n"
+        written = []
+        def fake_open(path, mode="r", encoding="utf-8"):
+            import io
+            if mode == "r":
+                return io.StringIO(content)
+            buf = io.StringIO()
+            buf.close = lambda: written.append(buf.getvalue())
+            return buf
+        act._inject_frontmatter("/out/v.md", "bilibili", "https://b.com/v",
+                                open_fn=fake_open)
+        self.assertEqual(written, [])  # nothing written
+
+    def test_summarize_action_injects_origin_into_md(self):
+        # When origin_url is on the result, summarize_one injects it after writing the md.
+        injected = []
+        content = "---\ntitle: T\nsource: https://r2/v.mp4\n---\n# T\n"
+        def fake_run(cmd, **kw):
+            return _Proc(stdout="/out/v.md\n", returncode=0)
+        def fake_inject(path, platform, origin_url, open_fn=None, log=None):
+            injected.append((path, platform, origin_url))
+        result_with_origin = {
+            "platform": "bilibili",
+            "origin_url": "https://www.bilibili.com/video/BV1xxx",
+            "title": "T",
+            "public_url": "https://r2/v.mp4",
+            "duration_secs": 60,
+        }
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": result_with_origin}],
+             "listing_errors": [], "summary": "s"},
+            {"enabled": True, "out": "/out", "notify": False},
+            run_fn=fake_run, send_fn=lambda *a: None,
+            inject_fn=fake_inject,
+        )
+        self.assertEqual(injected, [("/out/v.md", "bilibili",
+                                     "https://www.bilibili.com/video/BV1xxx")])
+
+    def test_summarize_action_skips_inject_without_origin_url(self):
+        # Results without origin_url (e.g. direct-publish items) must not crash.
+        injected = []
+        def fake_run(cmd, **kw):
+            return _Proc(stdout="/out/v.md\n", returncode=0)
+        def fake_inject(path, platform, origin_url, open_fn=None, log=None):
+            injected.append((path, platform, origin_url))
+        result_no_origin = {
+            "platform": "youtube", "title": "T",
+            "public_url": "https://r2/v.mp4", "duration_secs": 60,
+        }
+        act.summarize_action(
+            {"outcomes": [{"ok": True, "result": result_no_origin}],
+             "listing_errors": [], "summary": "s"},
+            {"enabled": True, "out": "/out", "notify": False},
+            run_fn=fake_run, send_fn=lambda *a: None,
+            inject_fn=fake_inject,
+        )
+        self.assertEqual(injected, [])  # inject never called
+
 
 class Config(unittest.TestCase):
     def test_parse_config_merges_defaults(self):

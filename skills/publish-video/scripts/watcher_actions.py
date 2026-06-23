@@ -113,8 +113,38 @@ def mytv_action(run_context, opts, log=None, env=None, pending_path=None,
     return out
 
 
+def _inject_frontmatter(path, platform, origin_url, open_fn=open, log=None):
+    """Inject origin + origin_url into a markdown file's YAML frontmatter.
+    Safe: silently no-ops if frontmatter is absent, fields already present,
+    origin_url is empty, or any I/O error occurs."""
+    log = log or (lambda m: None)
+    try:
+        with open_fn(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as e:
+        log(f"summarize frontmatter: could not read {path}: {e}")
+        return
+    if not content.startswith("---\n"):
+        log(f"summarize frontmatter: no frontmatter block in {path}")
+        return
+    if "\norigin:" in content or "\norigin_url:" in content:
+        return
+    close = content.find("\n---\n", 3)
+    if close == -1:
+        log(f"summarize frontmatter: no closing --- in {path}")
+        return
+    injection = f"origin: {platform}\norigin_url: {origin_url}\n"
+    new_content = content[:close + 1] + injection + content[close + 1:]
+    try:
+        with open_fn(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+    except OSError as e:
+        log(f"summarize frontmatter: could not write {path}: {e}")
+
+
 def summarize_action(run_context, opts, log=None, env=None,
-                     run_fn=subprocess.run, send_fn=send_macos_notification) -> dict:
+                     run_fn=subprocess.run, send_fn=send_macos_notification,
+                     inject_fn=_inject_frontmatter) -> dict:
     """Run-level: summarize each published video with the external `video-summarizer`
     CLI, feeding it the R2 public_url. Writes one markdown per video (the CLI prints
     its path), isolates per-item failures (a missing CLI aborts the whole action),
@@ -163,6 +193,10 @@ def summarize_action(run_context, opts, log=None, env=None,
         stdout = (proc.stdout or "").strip()
         path = stdout.splitlines()[-1].strip() if stdout else ""
         if path.endswith(".md"):  # CLI prints the written path; .md => a file exists
+            origin_url = r.get("origin_url", "")
+            platform = r.get("platform", "")
+            if origin_url and platform:
+                inject_fn(path, platform, origin_url, log=log)
             return {"title": r["title"], "path": path}
         log(f"summarize: {r.get('title')!r} failed (exit {proc.returncode}): "
             f"{(proc.stderr or '').strip()[:200]}")
