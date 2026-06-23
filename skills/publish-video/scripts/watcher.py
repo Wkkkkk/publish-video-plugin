@@ -103,6 +103,7 @@ def make_result(entry: dict, published: dict) -> dict:
     return {
         "platform": entry["platform"],
         "source_id": entry["id"],
+        "origin_url": entry["url"],
         "title": published.get("title", entry.get("title", "")),
         "public_url": published["public_url"],
         "duration_secs": published.get("duration_secs", 0),

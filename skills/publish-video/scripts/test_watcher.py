@@ -812,11 +812,18 @@ class Publish(unittest.TestCase):
         self.assertIsNone(w.first_result({"results": []}))
 
     def test_make_result(self):
-        entry = {"platform": "youtube", "id": "abc", "url": "u", "title": "fallback"}
+        entry = {"platform": "youtube", "id": "abc",
+                 "url": "https://www.youtube.com/watch?v=abc", "title": "fallback"}
         published = {"public_url": "https://b/x.mp4", "duration_secs": 9, "title": "Real"}
         r = w.make_result(entry, published)
-        self.assertEqual(r, {"platform": "youtube", "source_id": "abc", "title": "Real",
-                             "public_url": "https://b/x.mp4", "duration_secs": 9})
+        self.assertEqual(r, {
+            "platform": "youtube",
+            "source_id": "abc",
+            "origin_url": "https://www.youtube.com/watch?v=abc",
+            "title": "Real",
+            "public_url": "https://b/x.mp4",
+            "duration_secs": 9,
+        })
 
 
 def _base_deps(overrides):
